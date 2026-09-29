@@ -42,10 +42,19 @@ export default function RootLayout({
                 <Clapperboard size={20} aria-hidden="true" />
               </span>
               <span>
-                CodeBox <span className="font-normal text-muted">Movies</span>
+                CodeBox{" "}
+                <span className="hidden font-normal text-muted sm:inline">
+                  Movies
+                </span>
               </span>
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <Link
+                href="/discover"
+                className="text-sm text-muted hover:text-ink"
+              >
+                Discover
+              </Link>
               <Link
                 href="/account"
                 className="text-sm text-muted hover:text-ink"
@@ -61,7 +70,9 @@ export default function RootLayout({
         </main>
         <footer className="mx-auto mt-12 flex max-w-7xl flex-wrap items-center justify-between gap-4 border-t border-line px-5 py-6 text-xs text-muted sm:px-10">
           <p>A little space for your love of movies.</p>
-          <span>CodeBox Movies · Portfolio preview</span>
+          <Link href="/about" className="hover:text-ink">
+            About &amp; credits
+          </Link>
         </footer>
       </body>
     </html>

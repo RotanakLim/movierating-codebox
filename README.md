@@ -1,6 +1,6 @@
 # CodeBox Movies
 
-Next.js **15.5.26**, TypeScript, Tailwind CSS 4, and Supabase email/password + Google authentication. This is the authentication foundation for `SPEC.md`, not the completed movie platform. Google OAuth is now in scope per the latest request.
+Next.js **15.5.26**, TypeScript, Tailwind CSS 4, and Supabase email/password + Google authentication. Includes movie discovery, posters, basic detail pages, and secure selection caching from `SPEC.md`. The remaining movie platform features are still in progress. Google OAuth is now in scope per the latest request.
 
 ## Run locally
 
@@ -9,7 +9,7 @@ Use Node.js 22 or newer (tested with Node 24) and npm.
 ```sh
 npm install
 cp .env.example .env.local
-# Fill in the three values described below.
+# Fill in the environment values described below.
 npm run dev
 ```
 
@@ -21,7 +21,30 @@ Open http://localhost:3000. Without credentials, the landing page runs and auth 
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | The project's **publishable** key (a legacy anon key also works)              |
 | `NEXT_PUBLIC_SITE_URL`                 | Exact canonical app origin, e.g. `http://localhost:3000`; HTTPS in production |
 
-The public key is intentionally browser-safe when database RLS is properly configured. **Never use a secret/service-role key here.** This scaffold does not need one. `.env.local` is ignored; `.env.example` contains blank key fields. Google secrets are configured in Supabase, not in frontend environment variables. Restart the dev server after changing environment values; rebuild deployments after changing public variables.
+The public key is intentionally browser-safe when database RLS is properly configured. **Never use a secret/service-role key here.** The separate server-only `SUPABASE_SERVICE_ROLE_KEY` is used for movie caching and request limits. `.env.local` is ignored; `.env.example` contains blank key fields. Google secrets are configured in Supabase, not in frontend environment variables. Restart the dev server after changing environment values; rebuild deployments after changing public variables.
+
+## Movie discovery setup
+
+Add these **server-only** values to `.env.local` and your Vercel environment:
+
+| Variable                     | Value                                                            |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `TMDB_API_READ_ACCESS_TOKEN` | TMDB API Read Access Token, not the shorter API key              |
+| `SUPABASE_SERVICE_ROLE_KEY`  | Supabase service-role key for the same project as the public URL |
+
+Never prefix either with `NEXT_PUBLIC_`. Apply all three SQL migrations in timestamp order; see [DATABASE.md](DATABASE.md). Search requires TMDB plus Supabase configuration because request quotas are persisted in the database. Restart after configuring credentials. Missing configuration produces a recoverable setup message.
+
+Visit `/discover` to search titles, filter by genre/year, and load more results. `/search` redirects there while preserving filters. Posters have a missing-image fallback. `/movies/[tmdbId]` shows basic details, and `/about` includes TMDB attribution.
+
+`GET /api/movies/search` calls TMDB on the server. Search results are cached for five minutes; detail responses for 24 hours. For title searches, genre filtering applies to each fetched TMDB page, so a filtered page can be empty while more pages remain. Browse-only genre filtering is handled upstream.
+
+Selecting a movie posts only `{ "tmdbId": 693134 }` to `/api/movies/cache`. A verified signed-in user is required. The server fetches authoritative metadata and upserts only `tmdb_id`, `title`, `poster`, `year`, and `cached_at`; repeated selection is safe. This does not create a rating or watchlist entry. Guests can browse and view details, then sign in and select again. Use the exact `NEXT_PUBLIC_SITE_URL` browser origin so the mutation origin check succeeds.
+
+Search and detail reads share a limit of 60 requests/minute per trusted Vercel client IP. Outside Vercel they share a deployment-wide bucket until a trusted proxy integration is supplied. Selection allows 30 requests/10 minutes per verified user. Database keys are HMAC hashes; expired quota rows are cleaned up after a day during requests. If the quota database is unavailable, requests fail with a retryable error. Detail pages can fall back to minimal cached metadata on service failures, but never on a TMDB not-found/adult exclusion response.
+
+Tests use mocked TMDB/Supabase responses and an isolated PostgreSQL engine; they do not validate live credentials. After setup, search for a movie, select it while signed in, and inspect its minimal `movies` row in Supabase.
+
+References: [TMDB application authentication](https://developer.themoviedb.org/docs/authentication-application), [movie search](https://developer.themoviedb.org/reference/search-movie), [poster images](https://developer.themoviedb.org/docs/image-basics).
 
 ## Supabase setup
 
@@ -84,7 +107,7 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 
 `src/lib/supabase/client.ts` supplies the browser client for future interactive data features; `server.ts` supplies a request-scoped cookie client. `src/middleware.ts` refreshes sessions and forwards updated cookies; this is **middleware.ts**, not Next.js 16's proxy.ts. Protected pages/actions independently verify identity via `getUser()`, not `getSession()`. Callback redirects use the configured canonical origin and reject external `next` values. Auth responses are private/no-store and auth pages are noindex. Account information is not exposed to guests.
 
-Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Theme account synchronization, username onboarding, movie data, reviews, and the rest of `SPEC.md` remain future work.
+Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Theme account synchronization, username onboarding, reviews, and the rest of `SPEC.md` remain future work.
 
 PostCSS is overridden to a patched 8.x release because Next.js 15 pins an older transitive version; retain this override until the framework dependency is patched.
 
@@ -106,6 +129,6 @@ After setting up your real project, manually verify: signup → email confirmati
 
 ## Deploy to Vercel
 
-Import this repository as a Next.js project. Add all three environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. Auth secrets and test accounts are not bundled in the repository.
+Import this repository as a Next.js project. Add all five environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. Auth secrets and test accounts are not bundled in the repository.
 
 Official references: [Next.js 15 installation](https://nextjs.org/docs/15/app/getting-started/installation), [Supabase SSR](https://supabase.com/docs/guides/auth/server-side/creating-a-client), [email/password authentication](https://supabase.com/docs/guides/auth/passwords).

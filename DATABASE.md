@@ -1,6 +1,6 @@
 # CodeBox Movies database
 
-Two ordered Supabase SQL migrations implement the requested core tables, RLS, constrained writes, and feed automation. They have **not** been applied to a hosted project.
+Three ordered Supabase SQL migrations implement the requested core tables, RLS, constrained writes, and feed automation. They have **not** been applied to a hosted project.
 
 ## Apply
 
@@ -24,12 +24,16 @@ npx supabase db push --dry-run
 npx supabase db push
 ```
 
-Alternatively, run the contents of both migration files in the Supabase SQL Editor, in timestamp order, as the database administrator. Do not then reapply the same migrations through the CLI without first reconciling its migration history. No secrets belong in SQL files. Never run the test fixture on a live database.
+Alternatively, run the contents of all three migration files in the Supabase SQL Editor, in timestamp order, as the database administrator. Do not then reapply the same migrations through the CLI without first reconciling its migration history. No secrets belong in SQL files. Never run the test fixture on a live database.
 
 Files:
 
 1. `supabase/migrations/20260929000100_core_tables.sql`: tables, enums, constraints, indexes, RLS enabled, explicit revocation of default client grants.
 2. `supabase/migrations/20260929000200_access_and_activity.sql`: policies, safe projections, lifecycle triggers, and follow RPCs. Also backfills profiles and watchlists for existing Auth users.
+
+3. `supabase/migrations/20260929000300_movie_request_limits.sql`: private request counters and a service-role-only quota RPC for movie search and selection.
+
+Selection uses `POST /api/movies/cache` with only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
 Each migration is transactional and intended to run once through migration tracking. The first leaves tables inaccessible to clients until the second completes. SQL intentionally fails on conflicting existing tables instead of silently overwriting a different schema. Use forward migrations for later changes; rolling these tables back would destroy application data.
 
@@ -163,8 +167,8 @@ For a Community feed, include only `ranked`/`reviewed` events. For Following, fi
 npm run test:db
 ```
 
-The test runner applies both migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
+The test runner applies all three migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
 
 Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, default watchlists, list ownership, history selection, feed updates/deletion, and Auth cascade cleanup. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
 
-This change is a database foundation. Application pages/forms are not yet wired to it. Movie release/adult checks belong in the trusted TMDB ingestion/write workflow because this intentionally minimal cache does not store release metadata. Avatar bucket policies and image processing, username onboarding UI, moderation/suspension, comments/likes, notifications, taste calculations, persistent rate limits, and account-deletion orchestration remain subsequent implementation work. Do not treat these core migrations as completion of every feature in SPEC.md.
+This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Avatar bucket policies and image processing, username onboarding UI, moderation/suspension, comments/likes, notifications, taste calculations, account-deletion orchestration remain subsequent implementation work. Do not treat these core migrations as completion of every feature in SPEC.md.

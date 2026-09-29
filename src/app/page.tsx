@@ -45,8 +45,14 @@ export default async function Home() {
               <ArrowUpRight size={16} aria-hidden="true" />
             </Link>
           </div>
+          <Link
+            href="/discover"
+            className="mt-6 inline-block text-sm text-accent underline"
+          >
+            Browse movies
+          </Link>
           <p className="mt-5 text-xs text-muted">
-            Your movie story starts with an account.
+            Your movie story starts with a little discovery.
           </p>
         </section>
         <section

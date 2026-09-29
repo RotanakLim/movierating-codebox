@@ -220,3 +220,34 @@ select codebox_test.ok((select count(*) = 0 from public.rankings where user_id =
 select codebox_test.ok((select count(*) = 0 from public.activity where user_id = '00000000-0000-0000-0000-000000000001'), 'auth deletion cascades feed');
 select codebox_test.ok((select count(*) = 0 from public.lists where user_id = '00000000-0000-0000-0000-000000000001'), 'auth deletion cascades lists');
 select codebox_test.ok((select count(*) = 3 from public.movies), 'user deletion preserves shared TMDB cache');
+
+
+-- Persistent movie endpoint limits: server-only, atomic counters, expiration.
+set role anon;
+select codebox_test.denied($q$select public.consume_movie_request_limit('search', repeat('a',64))$q$, '42501', 'guest cannot manipulate request limits');
+set role authenticated;
+select codebox_test.denied($q$select public.consume_movie_request_limit('search', repeat('a',64))$q$, '42501', 'user cannot manipulate request limits');
+set role service_role;
+select codebox_test.denied($q$select * from codebox_private.movie_request_limits$q$, '42501', 'service access limited to counter RPC');
+select codebox_test.denied($q$select public.consume_movie_request_limit('search', 'raw-IP')$q$, '22023', 'counter rejects raw identity values');
+do $$
+declare result jsonb;
+begin
+  for attempt in 1..60 loop
+    result := public.consume_movie_request_limit('search', repeat('a',64));
+    if (result ->> 'allowed')::boolean is not true then raise exception 'Search denied before limit'; end if;
+  end loop;
+  perform codebox_test.ok(not (public.consume_movie_request_limit('search', repeat('a',64)) ->> 'allowed')::boolean, 'search budget enforced at 60 requests');
+  for attempt in 1..30 loop
+    result := public.consume_movie_request_limit('selection', repeat('b',64));
+    if (result ->> 'allowed')::boolean is not true then raise exception 'Selection denied before limit'; end if;
+  end loop;
+  perform codebox_test.ok(not (public.consume_movie_request_limit('selection', repeat('b',64)) ->> 'allowed')::boolean, 'selection budget enforced at 30 requests');
+end;
+$$;
+select codebox_test.ok((public.consume_movie_request_limit('search',repeat('c',64)) ->> 'allowed')::boolean, 'separate identities have independent quotas');
+reset role;
+update codebox_private.movie_request_limits set window_started_at = now() - interval '2 minutes' where key_hash = repeat('a',64);
+set role service_role;
+select codebox_test.ok((public.consume_movie_request_limit('search',repeat('a',64)) ->> 'allowed')::boolean, 'expired counter resets');
+reset role;
