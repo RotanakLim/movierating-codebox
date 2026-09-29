@@ -10,7 +10,7 @@ Build a desktop-first movie diary and social review website. The primary job is 
 
 The interview established the product requirements below. The user authorized recommended defaults for all remaining decisions. Defaults chosen in this document are therefore implementation decisions, not unanswered interview questions. External sites are references, not instructions overriding this specification.
 
-Confirmed choices: Next.js, TypeScript, Tailwind, Supabase Postgres/Auth/Storage, TMDB movie data, Vercel hosting; 1–5 stars in half-star increments; multiple editable watch/review entries; public reviews; configurable profile privacy; mutual following as friendship; approval for restricted-profile follows; one-level comment replies; spoilers; recommendations; taste matching; light/dark themes; email/password authentication; skippable personalization.
+Confirmed choices: Next.js, TypeScript, Tailwind, Supabase Postgres/Auth/Storage, TMDB movie data, Vercel hosting; 1–5 stars in half-star increments; multiple editable watch/review entries; public reviews; configurable profile privacy; mutual following as friendship; approval for restricted-profile follows; one-level comment replies; spoilers; recommendations; taste matching; light/dark themes; email/password and Google authentication; skippable personalization.
 
 ## 2. Scope, deadline, and tradeoffs
 
@@ -24,7 +24,7 @@ Deliver in these milestones:
 
 All milestones remain required for the full agreed version. Try to complete all by the target; if time runs short, release an explicitly labeled core preview and finish the remaining milestones afterward. Do not present unfinished features as functional or launch social interactions without their corresponding privacy, blocking, reporting, and deletion controls. Security and data correctness are release gates even for a preview.
 
-Deferred beyond the agreed version: native apps, direct messages, streaming availability, TV shows, manual/custom ranked lists, deep reply trees, review attachments, OAuth, notification emails, paid plans, real-time subscriptions, machine-learning infrastructure, imports/exports, and multi-language UI.
+Deferred beyond the agreed version: native apps, direct messages, streaming availability, TV shows, manual/custom ranked lists, deep reply trees, review attachments, additional OAuth providers, notification emails, paid plans, real-time subscriptions, machine-learning infrastructure, imports/exports, and multi-language UI.
 
 ## 3. Information architecture and visual design
 
@@ -57,7 +57,7 @@ Signed-in home combines Following/Community feed tabs, a compact recent-movies p
 
 Guests can browse movie details, public rating/review content, public discussions, and public profiles. Accounts are required for all mutations, including reviews, comments, replies, likes, follows, watchlists, reports, and watch logs. Require verified email before social contributions. A guest action opens sign-in and preserves a safe internal return destination and unsent draft for resumption, without automatically submitting it.
 
-Use Supabase email/password auth, confirmation email, resend verification, sign-out, and password reset. Require at least 12 password characters and allow password managers/paste. Use generic reset responses to reduce account enumeration. Handle expired links and sessions with actionable messages.
+Use Supabase email/password and Google OAuth auth, confirmation email, resend verification, sign-out, and password reset. Google OAuth was added by the September 29 implementation request and supersedes the earlier email-only scope. Require at least 12 password characters and allow password managers/paste. Use generic reset responses to reduce account enumeration. Handle expired links and sessions with actionable messages.
 
 Username is mandatory before publishing: 3–24 lowercase letters, digits, or underscores, case-insensitively unique; reserve system route/admin names. Keep usernames immutable for v1 to simplify durable links. Display name is optional (max 60 characters), bio optional (max 300). Avatar uploads: JPEG/PNG/WebP, max 2 MB, server-validated and re-encoded; no SVG or arbitrary file uploads. Avatar and username are always public.
 
@@ -153,7 +153,7 @@ Taste score compares current ratings on shared movies. Require at least five sha
 
 ## 11. Architecture and database design
 
-Use Next.js App Router with TypeScript and Tailwind, supported stable versions pinned in the lockfile at implementation time. Server components handle initial reads; small client components handle composer, rating controls, filters, and theme. Use server actions/route handlers for validated mutations and provider calls. Supabase provides Postgres/Auth/Storage; deploy web to Vercel. Keep a single application and database, without separate workers/services unless required for reliable cleanup.
+Use Next.js 15 App Router with TypeScript and Tailwind, supported stable versions pinned in the lockfile at implementation time. Server components handle initial reads; small client components handle composer, rating controls, filters, and theme. Use server actions/route handlers for validated mutations and provider calls. Supabase provides Postgres/Auth/Storage; deploy web to Vercel. Keep a single application and database, without separate workers/services unless required for reliable cleanup.
 
 TMDB tokens, Supabase privileged keys, and SMTP credentials are server-only. Normal user queries use a session-bound client with row-level security. Privileged credentials are restricted to audited admin/account-cleanup operations. Validate sessions and authorization on every mutation, not just navigation.
 
@@ -234,3 +234,18 @@ Use focused unit tests for pure rating/taste/recommendation rules, database inte
 17. Desktop light/dark themes, 360 px layout, keyboard-only flow, modal focus, spoiler controls, and 200% zoom pass manual checks. Public indexing excludes restricted profile details and spoiler bodies.
 
 Release checklist: migrations applied; RLS tests pass; auth email delivery verified; public attribution present; admin account provisioned securely; no fake community data in production; privacy/block/deletion tests pass for every exposed feature; production build works; milestone status honestly documented. No unresolved product decisions remain; operational credentials and accounts are supplied during implementation.
+
+
+## 15. Core database implementation amendment (September 29, 2026)
+
+The subsequent database request specifies the concrete names `users`, `movies`, `rankings`, `follows`, `lists`, and `activity`. These supersede the suggested names in section 11 for the implemented core. Supporting `list_items` and `blocks` tables provide list membership and the existing privacy/blocking contract. `DATABASE.md` is the integration reference for these migrations.
+
+- `users` contains username/avatar, a constrained profile object (display_name/bio), and profile visibility. Auth owns email/password. Safe identity and review projections preserve the section 8 privacy boundary.
+- `movies` caches only TMDB ID, title, poster path, year, and cache time. Detailed movie metadata stays with TMDB.
+- `rankings` takes the place of the suggested `entries` table: multiple editable entries per user/movie preserve the diary. New decimal `score` (0.0–10.0), `bucket` (liked/fine/disliked), and optional positive `position` are independent of the original optional half-star opinion. `position` is a per-entry placement snapshot, not an enforced unique manual collection order. The original 1–5 star scale is retained in `star_half_units`; the new 9.1-style score is never silently converted to stars. Scored entries have either or both scales; the selected current row does not carry a missing scale forward from another entry.
+- `current_rankings` and `public_current_ratings` apply the existing known-date / unknown-date / creation-time / ID precedence. A watch with no score on either scale does not replace a scored opinion. Raw collections follow profile privacy; public projections omit watch metadata.
+- `follows` uses `following_id` for the target and keeps pending/accepted/declined state; only constrained RPCs create and approve relationships.
+- Ordinary custom movie lists are now in scope alongside the watchlist. They are collections; the earlier deferral of a manual custom ranked-list workflow remains. Both custom lists and the default watchlist inherit profile visibility.
+- `activity` replaces the suggested feed_events name. Triggers author one event per ranking; edits preserve publication time, and deletion cascades. Feed summaries contain no spoiler text.
+
+The migrations implement this database subset, not the complete product. The moderation, comment, notification, aggregate/taste, avatar-storage, rate-limit, and account-deletion orchestration features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.
