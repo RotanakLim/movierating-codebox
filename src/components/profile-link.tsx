@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type Profile = { username: string | null } | null;
+/** null = guest; username null = signed in but onboarding not finished. */
+export type Profile = { username: string | null } | null;
 const PROFILE_CHANGED = "codebox:profile-changed";
 
 /** Render after a server-side profile change (e.g. a claimed username). */
@@ -20,19 +20,18 @@ function hasSessionCookie() {
 }
 
 /**
- * Header link to the signed-in user's profile, or to onboarding when they have no
- * username yet. Display only: pages and actions still authorize with getUser().
- * Runs in the browser so the root layout stays static for public pages, and uses a
- * small JSON route rather than supabase-js so every page doesn't ship the client.
+ * The signed-in user's username for navigation. Display only: pages and actions
+ * still authorize with getUser(). Runs in the browser so the root layout stays
+ * static, and uses a small JSON route rather than supabase-js so every page
+ * doesn't ship the client. Guests (no session cookie) make no request.
  */
-export function ProfileLink() {
+export function useProfile(): Profile {
   const pathname = usePathname();
   const [profile, setProfile] = useState<Profile>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      // Guests have no session cookie: skip the request entirely.
       if (!hasSessionCookie()) return setProfile(null);
       try {
         const response = await fetch("/api/me", { signal: controller.signal });
@@ -58,23 +57,5 @@ export function ProfileLink() {
     // Sign-in, sign-out and onboarding change cookies server-side, then navigate.
   }, [pathname]);
 
-  if (!profile) return null;
-  if (!profile.username)
-    return (
-      <Link
-        href="/onboarding"
-        className="text-sm font-semibold text-accent hover:underline"
-      >
-        Finish setup
-      </Link>
-    );
-  return (
-    <Link
-      href={`/u/${profile.username}`}
-      className="text-sm text-muted hover:text-ink"
-      aria-label={`Your profile, @${profile.username}`}
-    >
-      @{profile.username}
-    </Link>
-  );
+  return profile;
 }

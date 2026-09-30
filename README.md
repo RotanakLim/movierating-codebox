@@ -124,11 +124,23 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 - `/auth/error`: expired/canceled/failed auth recovery links.
 - `/account`: server-protected account page and current-browser sign-out.
 - `/onboarding`: required username (3–24 lowercase letters, digits, underscores; reserved names rejected; permanent in v1) with a debounced availability check, then optional favorite genres and up to five favorite movies (skippable), then a notice that profiles are public by default. Sign-in, Google callback, and email confirmation send accounts without a username here first, preserving the safe `next` path. The header shows `Finish setup` until a username exists, then a link to `/u/<username>`.
+- Left navigation (Home, Discover, My Movies, Watchlist, Profile, Settings) on large screens; a top bar with an accessible menu on phones, with no horizontal scroll at 360px. The Profile link comes from `/api/me`, so the layout stays static.
+- `/me/movies`: the owner's collection, one row per movie with the current score, last known watch date and watch count.
+  - Sort by highest or lowest rated, title, or latest watch. Unrated movies and unknown dates sort last, with ties broken by title and then movie ID. There is no manual ordering.
+  - Filter to rated and/or watched movies.
+- `/me/diary`: watched entries grouped by date, plus an "Unknown date" group. Each row has Edit (opens the movie page composer via `?edit=`) and Delete with an inline confirmation.
+- `/me/watchlist`: the owner's watchlist with remove. Movies are added from movie pages.
+- `/me/lists`: create, rename and delete custom lists and remove movies from them. Movies are added from a movie page's "Add to list".
+- `/u/[username]`: the same tabs (Movies, Diary, Watchlist, Lists) for anyone the profile's privacy setting allows.
+  - Everyone else sees a restricted shell: username, avatar, a restriction message, and follow/request, block and report controls.
+  - Block explains that follows are removed and that public content stays visible to signed-out visitors.
+  - Reports return a receipt and are never readable by clients.
+- `/settings`: profile privacy (public, followers, friends, private), incoming follow requests (accept or decline), followers (remove), and blocked accounts (unblock).
 - `GET /api/me`: the signed-in user's username for that header link (private, no-store; display only, never used for authorization). The header only calls it when a Supabase session cookie exists, so guests make no request and public pages stay static.
 
 `src/lib/supabase/client.ts` supplies the browser client for future interactive data features; `server.ts` supplies a request-scoped cookie client. `src/middleware.ts` refreshes sessions with `getClaims()` and forwards updated cookies; this is **middleware.ts**, not Next.js 16's proxy.ts. It skips `/api/movies/search`, and only marks a response `private, no-store` when it refreshes auth cookies or the path is under `/auth` or `/account`, so public pages stay cacheable. `getClaims()` verifies the JWT locally when the project uses asymmetric JWT signing keys (otherwise it calls Auth), but cannot see sessions revoked since the token was issued, so protected pages and server actions independently verify identity via `getUser()`, never `getSession()`. Pages that call `getUser()` always render dynamically; `/about` and `/discover` are static. Callback redirects use the configured canonical origin and reject external `next` values. Auth responses are private/no-store and auth pages are noindex. Account information is not exposed to guests.
 
-Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Theme account synchronization, profile pages (`/u/[username]`), settings, reviews, and the rest of `SPEC.md` remain future work.
+Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Theme account synchronization, notifications, feeds, avatars, display name and bio editing, the report admin queue, and the rest of `SPEC.md` remain future work.
 
 PostCSS is overridden to a patched 8.x release because Next.js 15 pins an older transitive version; retain this override until the framework dependency is patched.
 

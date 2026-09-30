@@ -36,6 +36,12 @@ Files:
 7. `supabase/migrations/20260930000500_onboarding.sql`: `codebox_private.valid_username()` (the single source of username rules, now used by `users_username_format`), the `username_status()` availability RPC, owner-only `user_preferences` (favorite genres) and `user_favorite_movies` (up to five), and the `set_favorite_movies()` RPC.
 8. `supabase/migrations/20260930000600_entries.sql`: renames `rankings` → `entries`, `current_rankings` → `current_entries`, `activity.ranking_id` → `entry_id`, the `ranked` activity kind → `rated`, and the guard/sync functions, constraints, indexes, policies and triggers to match. `score` becomes plain `numeric` so the database rejects extra decimals instead of rounding them.
 9. `supabase/migrations/20260930000700_movie_rating_summary.sql`: `movie_rating_summary(movie_id)` returns the community average (0.0–10.0, one decimal) and rater count from one current score per author, using `current_entries` precedence. It is security definer so blocks never change it and restricted-profile authors' public scores count; it exposes only the two aggregates. Adds a partial index for it.
+10. `supabase/migrations/20260930000800_profiles.sql`:
+    - `user_movie_collection`: a security-invoker view with one row per user and movie, giving the current score (same precedence as `current_entries`), the last known watch date and the watch count. Entries RLS applies, so it only returns collections the viewer may see.
+    - `profile_card(username)`: identity, privacy mode, access flag and the viewer's own relationship and follow status, for the restricted-profile shell. A viewer blocked by the owner gets only `unavailable`.
+    - `my_blocked_users()`: the caller's own block list.
+    - `reports`: user reports, one open report per reporter and target. Clients can insert but never read them; there is no admin queue yet.
+    - A diary index on watched entries.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -81,6 +87,22 @@ Read `user_identities` for public username/avatar, and `public_reviews` for publ
 Public views omit watched status, watch date, timezone, placement, and private profile JSON. `public_reviews` includes the spoiler flag and full note for explicit reveal; the UI must conceal flagged text and avoid embedding it into metadata or previews. `activity_feed` never includes any note text. A public rating can still reveal that someone has an opinion about a movie; privacy is not anonymity.
 
 The current-rating views are viewer-filtered for blocks. A future global average must use a separate trusted aggregate that counts one eligible rating per user without changing according to the current viewer's blocks; do not derive a global total from this viewer-filtered response.
+
+### Profile privacy matrix
+
+`supabase/tests/core.sql` checks this matrix with direct SQL for the profile row, raw entries, the collection view, lists, list items, the social graph, `profile_card` and `public_reviews`:
+
+| Viewer                      | public | followers | friends | private |
+| --------------------------- | ------ | --------- | ------- | ------- |
+| Guest                       | ✓      | –         | –       | –       |
+| Unrelated user              | ✓      | –         | –       | –       |
+| Pending follower            | ✓      | –         | –       | –       |
+| Accepted follower (one-way) | ✓      | ✓         | –       | –       |
+| Mutual friend               | ✓      | ✓         | ✓       | –       |
+| Owner                       | ✓      | ✓         | ✓       | ✓       |
+| Blocked (either direction)  | –      | –         | –       | –       |
+
+Scores and reviews stay visible through `public_reviews` in every mode, except to a signed-in blocked account.
 
 ## Client permissions
 

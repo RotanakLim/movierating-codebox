@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Eye, LoaderCircle, Plus, Globe, PencilLine } from "lucide-react";
 import { saveEntry } from "@/app/entries/actions";
 import { ScoreInput } from "./score-input";
+import { DeleteEntryButton } from "@/components/profiles/owner-controls";
 import {
   claimGuestDraft,
   clearDraft,
@@ -46,6 +47,7 @@ export function EntryComposer({
   compose,
   opensOn = null,
   serverToday,
+  editId = null,
 }: {
   movieId: number;
   movieTitle: string;
@@ -56,6 +58,8 @@ export function EntryComposer({
   opensOn?: string | null;
   /** Today's date on the server, used until the browser's own date is known. */
   serverToday: string;
+  /** ?edit=<entry id> from the diary: open that entry. */
+  editId?: string | null;
 }) {
   const router = useRouter();
   const ids = { score: useId(), note: useId(), date: useId() };
@@ -119,7 +123,12 @@ export function EntryComposer({
     const draft = owner
       ? claimGuestDraft(owner, movieId)
       : loadDraft(null, movieId);
-    if (draft) {
+    const requested = editId
+      ? entries.find((entry) => entry.id === editId)
+      : undefined;
+    // An explicit Edit from the diary wins over a draft for a different entry.
+    if (requested && draft?.targetId !== requested.id) open("rate", requested);
+    else if (draft) {
       setToday(todayIn(browserTimeZone()));
       const stillThere =
         draft.targetId === null ||
@@ -259,15 +268,18 @@ export function EntryComposer({
                 )}
               </div>
               {viewer.status === "ready" && (
-                <button
-                  type="button"
-                  onClick={() => open("rate", entry)}
-                  disabled={refreshing}
-                  className="shrink-0 text-xs font-semibold text-accent hover:underline"
-                  aria-label={`Edit your entry, ${describeEntry(entry)}`}
-                >
-                  Edit
-                </button>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => open("rate", entry)}
+                    disabled={refreshing}
+                    className="text-xs font-semibold text-accent hover:underline"
+                    aria-label={`Edit your entry, ${describeEntry(entry)}`}
+                  >
+                    Edit
+                  </button>
+                  <DeleteEntryButton entryId={entry.id} title={movieTitle} />
+                </div>
               )}
             </li>
           ))}

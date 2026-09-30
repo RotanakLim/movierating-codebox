@@ -383,6 +383,65 @@ export type Database = {
         };
         Relationships: [];
       };
+      reports: {
+        Row: {
+          created_at: string;
+          details: string | null;
+          id: string;
+          reason: Database["public"]["Enums"]["report_reason"];
+          reporter_id: string;
+          status: Database["public"]["Enums"]["report_status"];
+          target_user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          details?: string | null;
+          id?: string;
+          reason: Database["public"]["Enums"]["report_reason"];
+          reporter_id?: string;
+          status?: Database["public"]["Enums"]["report_status"];
+          target_user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          details?: string | null;
+          id?: string;
+          reason?: Database["public"]["Enums"]["report_reason"];
+          reporter_id?: string;
+          status?: Database["public"]["Enums"]["report_status"];
+          target_user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "reports_reporter_id_fkey";
+            columns: ["reporter_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_reporter_id_fkey";
+            columns: ["reporter_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_user_id_fkey";
+            columns: ["target_user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_user_id_fkey";
+            columns: ["target_user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       user_favorite_movies: {
         Row: {
           added_at: string;
@@ -699,6 +758,41 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_movie_collection: {
+        Row: {
+          current_score: number | null;
+          last_watched_date: string | null;
+          movie_id: number | null;
+          poster: string | null;
+          title: string | null;
+          user_id: string | null;
+          watch_count: number | null;
+          year: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "entries_movie_id_fkey";
+            columns: ["movie_id"];
+            isOneToOne: false;
+            referencedRelation: "movies";
+            referencedColumns: ["tmdb_id"];
+          },
+          {
+            foreignKeyName: "entries_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "entries_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Functions: {
       consume_movie_request_limit: {
@@ -710,6 +804,27 @@ export type Database = {
         Returns: {
           average: number;
           raters: number;
+        }[];
+      };
+      my_blocked_users: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          avatar: string;
+          blocked_at: string;
+          id: string;
+          username: string;
+        }[];
+      };
+      profile_card: {
+        Args: { target_username: string };
+        Returns: {
+          avatar: string;
+          can_view: boolean;
+          follow_status: Database["public"]["Enums"]["follow_status"];
+          id: string;
+          relationship: string;
+          username: string;
+          visibility: Database["public"]["Enums"]["profile_visibility"];
         }[];
       };
       remove_follow: {
@@ -735,6 +850,9 @@ export type Database = {
       follow_status: "pending" | "accepted" | "declined";
       list_kind: "watchlist" | "custom";
       profile_visibility: "public" | "followers" | "friends" | "private";
+      report_reason:
+        "spam" | "harassment" | "inappropriate" | "spoilers" | "other";
+      report_status: "open" | "resolved" | "dismissed";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -869,6 +987,14 @@ export const Constants = {
       follow_status: ["pending", "accepted", "declined"],
       list_kind: ["watchlist", "custom"],
       profile_visibility: ["public", "followers", "friends", "private"],
+      report_reason: [
+        "spam",
+        "harassment",
+        "inappropriate",
+        "spoilers",
+        "other",
+      ],
+      report_status: ["open", "resolved", "dismissed"],
     },
   },
 } as const;

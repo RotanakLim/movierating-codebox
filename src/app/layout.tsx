@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Clapperboard } from "lucide-react";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { ProfileLink } from "@/components/profile-link";
+import { AppNav } from "@/components/app-nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,49 +30,25 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <header className="border-b border-line">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-5 py-5 sm:px-10">
-            <Link
-              href="/"
-              className="flex items-center gap-2.5 font-semibold tracking-tight"
-            >
-              <span className="rounded-lg bg-accent p-2 text-canvas">
-                <Clapperboard size={20} aria-hidden="true" />
-              </span>
-              <span>
-                CodeBox{" "}
-                <span className="hidden font-normal text-muted sm:inline">
-                  Movies
-                </span>
-              </span>
-            </Link>
-            <div className="flex items-center gap-3 sm:gap-4">
-              <Link
-                href="/discover"
-                className="text-sm text-muted hover:text-ink"
-              >
-                Discover
-              </Link>
-              <ProfileLink />
-              <Link
-                href="/account"
-                className="text-sm text-muted hover:text-ink"
-              >
-                Account
-              </Link>
-              <ThemeToggle />
-            </div>
+        <div className="lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
+          <AppNav />
+          <div className="min-w-0">
+            <main id="main" className="mx-auto max-w-7xl px-5 sm:px-10">
+              {children}
+            </main>
+            <footer className="mx-auto mt-12 flex max-w-7xl flex-wrap items-center justify-between gap-4 border-t border-line px-5 py-6 text-xs text-muted sm:px-10">
+              <p>A little space for your love of movies.</p>
+              <div className="flex gap-4">
+                <Link href="/account" className="hover:text-ink">
+                  Account
+                </Link>
+                <Link href="/about" className="hover:text-ink">
+                  About &amp; credits
+                </Link>
+              </div>
+            </footer>
           </div>
-        </header>
-        <main id="main" className="mx-auto max-w-7xl px-5 sm:px-10">
-          {children}
-        </main>
-        <footer className="mx-auto mt-12 flex max-w-7xl flex-wrap items-center justify-between gap-4 border-t border-line px-5 py-6 text-xs text-muted sm:px-10">
-          <p>A little space for your love of movies.</p>
-          <Link href="/about" className="hover:text-ink">
-            About &amp; credits
-          </Link>
-        </footer>
+        </div>
       </body>
     </html>
   );
