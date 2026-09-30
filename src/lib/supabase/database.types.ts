@@ -383,6 +383,79 @@ export type Database = {
           },
         ];
       };
+      user_favorite_movies: {
+        Row: {
+          added_at: string;
+          movie_id: number;
+          user_id: string;
+        };
+        Insert: {
+          added_at?: string;
+          movie_id: number;
+          user_id?: string;
+        };
+        Update: {
+          added_at?: string;
+          movie_id?: number;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_favorite_movies_movie_id_fkey";
+            columns: ["movie_id"];
+            isOneToOne: false;
+            referencedRelation: "movies";
+            referencedColumns: ["tmdb_id"];
+          },
+          {
+            foreignKeyName: "user_favorite_movies_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_favorite_movies_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_preferences: {
+        Row: {
+          favorite_genre_ids: number[];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          favorite_genre_ids?: number[];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Update: {
+          favorite_genre_ids?: number[];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: true;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: true;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       users: {
         Row: {
           avatar: string | null;
@@ -644,6 +717,11 @@ export type Database = {
         Args: { approve: boolean; requester_id: string };
         Returns: undefined;
       };
+      set_favorite_movies: {
+        Args: { movie_ids: number[] };
+        Returns: undefined;
+      };
+      username_status: { Args: { candidate: string }; Returns: string };
     };
     Enums: {
       activity_kind: "ranked" | "reviewed" | "watched";

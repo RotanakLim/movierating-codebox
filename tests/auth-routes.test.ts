@@ -3,9 +3,16 @@ import { NextRequest } from "next/server";
 const auth = vi.hoisted(() => ({
   exchangeCodeForSession: vi.fn(),
   verifyOtp: vi.fn(),
+  getUser: vi.fn(),
 }));
+// The users-row lookup behind the onboarding redirect.
+const profile = vi.hoisted(() => vi.fn());
+const from = vi.hoisted(() => () => ({
+  select: () => ({ eq: () => ({ maybeSingle: profile }) }),
+}));
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ auth })),
+  createClient: vi.fn(async () => ({ auth, from })),
 }));
 vi.mock("@/lib/env", () => ({
   getPublicConfig: () => ({ siteUrl: "https://codebox.test" }),
@@ -15,6 +22,11 @@ import { GET as confirm } from "@/app/auth/confirm/route";
 beforeEach(() => {
   auth.exchangeCodeForSession.mockResolvedValue({ error: null });
   auth.verifyOtp.mockResolvedValue({ error: null });
+  auth.getUser.mockResolvedValue({
+    data: { user: { id: "user-1" } },
+    error: null,
+  });
+  profile.mockResolvedValue({ data: { username: "film_fan" }, error: null });
 });
 describe("OAuth callback", () => {
   it("exchanges the code and rejects an external destination", async () => {
@@ -50,6 +62,28 @@ describe("OAuth callback", () => {
       expect(auth.exchangeCodeForSession).not.toHaveBeenCalled();
     },
   );
+  it("sends a new Google user without a username to onboarding", async () => {
+    profile.mockResolvedValue({ data: { username: null }, error: null });
+    const response = await callback(
+      new NextRequest(
+        "https://codebox.test/auth/callback?code=sample&next=/movies/10",
+      ),
+    );
+    expect(response.headers.get("location")).toBe(
+      "https://codebox.test/onboarding?next=%2Fmovies%2F10",
+    );
+  });
+  it("keeps an unsafe next out of the onboarding redirect", async () => {
+    profile.mockResolvedValue({ data: null, error: null });
+    const response = await callback(
+      new NextRequest(
+        "https://codebox.test/auth/callback?code=sample&next=//evil.test",
+      ),
+    );
+    expect(response.headers.get("location")).toBe(
+      "https://codebox.test/onboarding?next=%2Faccount",
+    );
+  });
   it("handles failed code exchange without exposing errors", async () => {
     auth.exchangeCodeForSession.mockResolvedValue({
       error: { message: "private provider detail" },
@@ -77,7 +111,19 @@ describe("email confirmation", () => {
       "https://codebox.test/account",
     );
   });
+  it("sends a newly confirmed account without a username to onboarding", async () => {
+    profile.mockResolvedValue({ data: { username: null }, error: null });
+    const response = await confirm(
+      new NextRequest(
+        "https://codebox.test/auth/confirm?type=email&token_hash=sample&next=/movies/10",
+      ),
+    );
+    expect(response.headers.get("location")).toBe(
+      "https://codebox.test/onboarding?next=%2Fmovies%2F10",
+    );
+  });
   it("forces recovery to the password form", async () => {
+    profile.mockResolvedValue({ data: { username: null }, error: null });
     const response = await confirm(
       new NextRequest(
         "https://codebox.test/auth/confirm?type=recovery&token_hash=sample&next=https://evil.test",

@@ -24,6 +24,10 @@ test("guests cannot access protected pages", async ({ page }) => {
   ).toBeVisible();
   await page.goto("/auth/update-password");
   await expect(page).toHaveURL(/\/auth\/sign-in/);
+  await page.goto("/onboarding?step=movies&next=/discover");
+  await expect(page).toHaveURL(
+    /\/auth\/sign-in\?next=%2Fonboarding%3Fnext%3D%252Fdiscover/,
+  );
 });
 test("theme persists and mobile layout fits", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });

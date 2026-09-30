@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getPublicConfig } from "@/lib/env";
 import { safeNext } from "@/lib/auth/redirect";
+import { destinationAfterAuth } from "@/lib/onboarding/profile";
 export async function GET(request: NextRequest) {
   const config = getPublicConfig();
   if (!config)
@@ -19,10 +20,15 @@ export async function GET(request: NextRequest) {
         type,
       });
       if (!error) {
+        // Recovery always goes to the password form; a newly confirmed account
+        // without a username goes through onboarding first.
         const next =
           type === "recovery"
             ? "/auth/update-password"
-            : safeNext(request.nextUrl.searchParams.get("next"));
+            : await destinationAfterAuth(
+                safeNext(request.nextUrl.searchParams.get("next")),
+                supabase,
+              );
         return NextResponse.redirect(new URL(next, config.siteUrl));
       }
     } catch {

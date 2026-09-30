@@ -9,8 +9,14 @@ const auth = vi.hoisted(() => ({
   updateUser: vi.fn(),
   signOut: vi.fn(),
 }));
+// The users-row lookup behind the onboarding redirect.
+const profile = vi.hoisted(() => vi.fn());
+const from = vi.hoisted(() => () => ({
+  select: () => ({ eq: () => ({ maybeSingle: profile }) }),
+}));
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({ auth })),
+  createClient: vi.fn(async () => ({ auth, from })),
 }));
 vi.mock("@/lib/env", () => ({
   getPublicConfig: () => ({ siteUrl: "https://codebox.test" }),
@@ -39,7 +45,15 @@ const credentials = {
   password: "a-long-test-passphrase",
   confirmPassword: "a-long-test-passphrase",
 };
-beforeEach(() => Object.values(auth).forEach((mock) => mock.mockReset()));
+beforeEach(() => {
+  Object.values(auth).forEach((mock) => mock.mockReset());
+  auth.getUser.mockResolvedValue({
+    data: { user: { id: "user-1", email_confirmed_at: "2026-09-30" } },
+    error: null,
+  });
+  profile.mockReset();
+  profile.mockResolvedValue({ data: { username: "film_fan" }, error: null });
+});
 describe("auth actions", () => {
   it("rejects weak passwords before contacting auth", async () => {
     expect(
@@ -82,6 +96,19 @@ describe("auth actions", () => {
     await expect(
       signIn({}, form({ ...credentials, next: "https://evil.test" })),
     ).rejects.toThrow("REDIRECT:/account");
+  });
+  it("sends a signed-in user without a username to onboarding, keeping next", async () => {
+    auth.signInWithPassword.mockResolvedValue({ error: null });
+    profile.mockResolvedValue({ data: { username: null }, error: null });
+    await expect(
+      signIn({}, form({ ...credentials, next: "/movies/10" })),
+    ).rejects.toThrow("REDIRECT:/onboarding?next=%2Fmovies%2F10");
+  });
+  it("continues to next once a username exists", async () => {
+    auth.signInWithPassword.mockResolvedValue({ error: null });
+    await expect(
+      signIn({}, form({ ...credentials, next: "/movies/10" })),
+    ).rejects.toThrow("REDIRECT:/movies/10");
   });
   it("starts Google with PKCE and a safe callback", async () => {
     auth.signInWithOAuth.mockResolvedValue({

@@ -32,7 +32,8 @@ grant execute on function codebox_test.ok(boolean, text), codebox_test.denied(te
 
 select codebox_test.ok((select count(*) = 1 from public.users where id = '00000000-0000-0000-0000-000000000099'), 'migration backfills existing auth users');
 select codebox_test.ok((select count(*) = 1 from public.lists where user_id = '00000000-0000-0000-0000-000000000099' and kind = 'watchlist'), 'migration backfills default watchlist');
-select codebox_test.ok((select count(*) = 8 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity), 'all eight public tables have RLS');
+select codebox_test.ok((select count(*) = 10 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity), 'all ten public tables have RLS');
+select codebox_test.ok((select count(*) = 0 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity), 'no public table lacks RLS');
 select codebox_test.ok(not has_function_privilege('anon', 'public.request_follow(uuid)', 'EXECUTE'), 'guest has no follow RPC grant');
 select codebox_test.ok(not has_function_privilege('authenticated', 'codebox_private.handle_auth_signup()', 'EXECUTE'), 'clients cannot invoke privileged trigger function');
 select codebox_test.ok((select count(*) = 5 from information_schema.columns where table_schema = 'public' and table_name = 'movies'), 'TMDB cache is minimal');
@@ -273,3 +274,64 @@ begin
 end;
 $$;
 select codebox_test.ok((select count(*) = 0 from codebox_private.movie_request_limits where key_hash = repeat('d',64)), 'occasional cleanup removes day-old counters');
+
+-- Onboarding: username rules and availability, owner-only preferences and favorites.
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000005', now()),
+ ('00000000-0000-0000-0000-000000000006', now());
+insert into public.movies(tmdb_id, title) values
+ (27205, 'Inception'), (157336, 'Interstellar'), (155, 'The Dark Knight'),
+ (603, 'The Matrix'), (680, 'Pulp Fiction'), (13, 'Forrest Gump');
+update public.users set visibility = 'private' where username = 'sam';
+set role anon;
+select codebox_test.denied($q$select public.username_status('someone')$q$, '42501', 'guest cannot probe username availability');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000005', false);
+select codebox_test.ok(not codebox_private.can_contribute(), 'user without a username cannot contribute');
+select codebox_test.ok(public.username_status('  Cinephile_1 ') = 'available', 'availability normalizes case and spaces');
+select codebox_test.ok(public.username_status('ab') = 'invalid', 'username shorter than 3 is invalid');
+select codebox_test.ok(public.username_status(repeat('a', 25)) = 'invalid', 'username longer than 24 is invalid');
+select codebox_test.ok(public.username_status('film-fan') = 'invalid', 'username with a dash is invalid');
+select codebox_test.ok(public.username_status('Onboarding') = 'reserved', 'route names are reserved');
+select codebox_test.ok(public.username_status('admin') = 'reserved', 'admin is reserved');
+select codebox_test.ok(public.username_status('ALEX') = 'taken', 'existing username is taken case-insensitively');
+select codebox_test.ok((select count(*) = 0 from public.users where username = 'sam'), 'private profile row is hidden by RLS');
+select codebox_test.ok(public.username_status('sam') = 'taken', 'private profiles still count as taken');
+select codebox_test.denied($q$update public.users set username = 'admin' where id = auth.uid()$q$, '23514', 'reserved username rejected on save');
+select codebox_test.denied($q$update public.users set username = 'x' where id = auth.uid()$q$, '23514', 'malformed username rejected on save');
+select codebox_test.denied($q$update public.users set username = 'ALEX' where id = auth.uid()$q$, '23505', 'duplicate username rejected on save, case-insensitively');
+update public.users set username = 'Film_Fan' where id = auth.uid();
+select codebox_test.ok((select username = 'film_fan' from public.users where id = auth.uid()), 'claimed username is stored lowercase');
+select codebox_test.ok(codebox_private.can_contribute(), 'claiming a username enables contributions');
+select codebox_test.ok(public.username_status('film_fan') = 'taken', 'own claimed username reads as taken');
+select codebox_test.denied($q$update public.users set username = 'another_name' where id = auth.uid()$q$, '23514', 'claimed username is permanent');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000006', false);
+select codebox_test.denied($q$update public.users set username = 'film_fan' where id = auth.uid()$q$, '23505', 'second user cannot claim the same username');
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000005', false);
+insert into public.user_preferences(favorite_genre_ids) values ('{878,18,878}');
+select codebox_test.ok((select favorite_genre_ids = '{18,878}' from public.user_preferences where user_id = auth.uid()), 'favorite genres are deduplicated');
+select codebox_test.denied($q$update public.user_preferences set favorite_genre_ids = '{999}'$q$, '23514', 'unknown genre IDs rejected');
+select codebox_test.denied($q$insert into public.user_preferences(user_id) values ('00000000-0000-0000-0000-000000000006')$q$, '42501', 'cannot write another user preferences');
+select public.set_favorite_movies('{157336,27205,155}');
+select codebox_test.ok((select array_agg(movie_id order by added_at) = '{157336,27205,155}' from public.user_favorite_movies where user_id = auth.uid()), 'favorites keep the order they were picked in');
+select public.set_favorite_movies('{27205,157336,155,603,680}');
+select codebox_test.ok((select count(*) = 5 from public.user_favorite_movies where user_id = auth.uid()), 'five favorites allowed; saving replaces the previous set');
+select codebox_test.denied($q$select public.set_favorite_movies('{27205,157336,155,603,680,13}')$q$, '22023', 'more than five favorites rejected');
+select codebox_test.denied($q$select public.set_favorite_movies('{27205,27205}')$q$, '22023', 'duplicate favorites rejected');
+select codebox_test.denied($q$insert into public.user_favorite_movies(movie_id) values (13)$q$, '23514', 'direct insert cannot exceed five favorites');
+select codebox_test.denied($q$select public.set_favorite_movies('{424242}')$q$, '23503', 'favorites must reference cached movies');
+select codebox_test.ok((select count(*) = 0 from public.rankings where user_id = auth.uid()), 'favorites never create rankings');
+select codebox_test.ok((select count(*) = 0 from public.activity where user_id = auth.uid()), 'favorites never create feed activity');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000006', false);
+select codebox_test.ok((select count(*) = 0 from public.user_preferences), 'preferences are owner-only');
+select codebox_test.ok((select count(*) = 0 from public.user_favorite_movies), 'favorites are owner-only');
+with touched as (delete from public.user_favorite_movies returning movie_id)
+  select codebox_test.ok((select count(*) = 0 from touched), 'other users cannot delete favorites');
+set role anon;
+select codebox_test.denied($q$select * from public.user_preferences$q$, '42501', 'guests cannot read preferences');
+select codebox_test.denied($q$select public.set_favorite_movies('{13}')$q$, '42501', 'guests cannot save favorites');
+reset role;
+delete from auth.users where id = '00000000-0000-0000-0000-000000000005';
+select codebox_test.ok((select count(*) = 0 from public.user_favorite_movies where user_id = '00000000-0000-0000-0000-000000000005'), 'auth deletion cascades favorites');
+select codebox_test.ok((select count(*) = 0 from public.user_preferences where user_id = '00000000-0000-0000-0000-000000000005'), 'auth deletion cascades preferences');
