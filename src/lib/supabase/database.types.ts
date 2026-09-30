@@ -383,6 +383,106 @@ export type Database = {
         };
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          actor_id: string;
+          comment_id: string | null;
+          created_at: string;
+          entry_id: string | null;
+          event_key: string;
+          id: string;
+          kind: string;
+          read_at: string | null;
+          recipient_id: string;
+        };
+        Insert: {
+          actor_id: string;
+          comment_id?: string | null;
+          created_at?: string;
+          entry_id?: string | null;
+          event_key: string;
+          id?: string;
+          kind: string;
+          read_at?: string | null;
+          recipient_id: string;
+        };
+        Update: {
+          actor_id?: string;
+          comment_id?: string | null;
+          created_at?: string;
+          entry_id?: string | null;
+          event_key?: string;
+          id?: string;
+          kind?: string;
+          read_at?: string | null;
+          recipient_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notifications_actor_id_fkey";
+            columns: ["actor_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_actor_id_fkey";
+            columns: ["actor_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_comment_id_fkey";
+            columns: ["comment_id"];
+            isOneToOne: false;
+            referencedRelation: "review_comments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "current_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_current_ratings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_reviews";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_recipient_id_fkey";
+            columns: ["recipient_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_recipient_id_fkey";
+            columns: ["recipient_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       reports: {
         Row: {
           created_at: string;
@@ -1170,6 +1270,7 @@ export type Database = {
         }[];
       };
       is_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      mark_notifications_read: { Args: { ids?: string[] }; Returns: number };
       movie_rating_summary: {
         Args: { target_movie_id: number };
         Returns: {
@@ -1188,6 +1289,33 @@ export type Database = {
           blocked_at: string;
           id: string;
           username: string;
+        }[];
+      };
+      my_notifications: {
+        Args: { after_at?: string; after_id?: string; page_size?: number };
+        Returns: {
+          actor_avatar: string;
+          actor_username: string;
+          available: boolean;
+          created_at: string;
+          id: string;
+          is_read: boolean;
+          kind: string;
+          movie_title: string;
+        }[];
+      };
+      my_unread_notification_count: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
+      };
+      open_notification: {
+        Args: { target: string };
+        Returns: {
+          actor_username: string;
+          available: boolean;
+          comment_id: string;
+          entry_id: string;
+          kind: string;
         }[];
       };
       pending_account_deletions: {

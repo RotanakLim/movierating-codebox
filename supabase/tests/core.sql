@@ -32,7 +32,7 @@ grant execute on function codebox_test.ok(boolean, text), codebox_test.denied(te
 
 select codebox_test.ok((select count(*) = 1 from public.users where id = '00000000-0000-0000-0000-000000000099'), 'migration backfills existing auth users');
 select codebox_test.ok((select count(*) = 1 from public.lists where user_id = '00000000-0000-0000-0000-000000000099' and kind = 'watchlist'), 'migration backfills default watchlist');
-select codebox_test.ok((select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity) = 13, 'all thirteen public tables have RLS');
+select codebox_test.ok((select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity) = 14, 'all fourteen public tables have RLS');
 select codebox_test.ok((select count(*) = 0 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity), 'no public table lacks RLS');
 select codebox_test.ok(not has_function_privilege('anon', 'public.request_follow(uuid)', 'EXECUTE'), 'guest has no follow RPC grant');
 select codebox_test.ok(not has_function_privilege('authenticated', 'codebox_private.handle_auth_signup()', 'EXECUTE'), 'clients cannot invoke privileged trigger function');
@@ -1371,4 +1371,111 @@ delete from public.entries where id = '00000000-0000-0000-0000-0000000000b1';
 reset role;
 select codebox_test.ok((select count(*) = 0 from public.review_likes where entry_id = '00000000-0000-0000-0000-0000000000b1') and (select count(*) = 0 from public.review_comments where entry_id = '00000000-0000-0000-0000-0000000000b1'), 'deleting a review removes its likes and discussion');
 select codebox_test.ok((select count(*) = 1 and bool_and(target_comment_id is null) from public.reports where id = '00000000-0000-0000-0000-0000000000a9'), 'reports outlive the deleted discussion');
+select set_config('request.jwt.claim.sub', '', false);
+
+-- Notifications: follow and discussion events, dedupe, blocks, read state, re-checks.
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000070', now()), ('00000000-0000-0000-0000-000000000071', now()),
+ ('00000000-0000-0000-0000-000000000072', now()), ('00000000-0000-0000-0000-000000000073', now()),
+ ('00000000-0000-0000-0000-000000000074', now()), ('00000000-0000-0000-0000-000000000075', now());
+update public.users set username = 'nt_me' where id = '00000000-0000-0000-0000-000000000070';
+update public.users set username = 'nt_friend' where id = '00000000-0000-0000-0000-000000000071';
+update public.users set username = 'nt_private', visibility = 'private' where id = '00000000-0000-0000-0000-000000000072';
+update public.users set username = 'nt_commenter' where id = '00000000-0000-0000-0000-000000000073';
+update public.users set username = 'nt_blocked' where id = '00000000-0000-0000-0000-000000000074';
+update public.users set username = 'nt_asker' where id = '00000000-0000-0000-0000-000000000075';
+select codebox_test.ok(not has_table_privilege('authenticated', 'public.notifications', 'SELECT'), 'notifications are read only through functions');
+create temp table nt_ids(name text primary key, id uuid);
+grant select, insert on nt_ids to authenticated, anon;
+
+set role authenticated;
+-- Follow events.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000071', false);
+select public.request_follow('00000000-0000-0000-0000-000000000070');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+select codebox_test.ok((select kind = 'new_follower' and actor_username = 'nt_friend' and available and not is_read from public.my_notifications() where actor_username = 'nt_friend'), 'an immediate follow notifies the target as a new follower');
+select public.request_follow('00000000-0000-0000-0000-000000000072');
+select public.request_follow('00000000-0000-0000-0000-000000000072');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000072', false);
+select codebox_test.ok((select count(*) = 1 and bool_and(kind = 'follow_request' and available) from public.my_notifications()), 'a follow request notifies the target once');
+select public.respond_follow('00000000-0000-0000-0000-000000000070', true);
+select codebox_test.ok((select count(*) = 0 from public.my_notifications()), 'a handled request leaves the inbox');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000075', false);
+select public.request_follow('00000000-0000-0000-0000-000000000072');
+select public.remove_follow('00000000-0000-0000-0000-000000000072', 'outgoing');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000072', false);
+select codebox_test.ok((select count(*) = 0 from public.my_notifications()), 'a cancelled request leaves the inbox');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+select codebox_test.ok((select count(*) = 1 from public.my_notifications() where kind = 'follow_accepted' and actor_username = 'nt_private' and available), 'an approved request notifies the requester');
+
+-- Discussion events.
+insert into public.entries(id, movie_id, score, note) values ('00000000-0000-0000-0000-0000000000c1', 603, 7.0, 'My take');
+insert into nt_ids select 'own', public.add_review_comment('00000000-0000-0000-0000-0000000000c1', 'Adding context');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000073', false);
+insert into nt_ids select 'top', public.add_review_comment('00000000-0000-0000-0000-0000000000c1', 'Nice review', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000071', false);
+insert into nt_ids select 'reply', public.add_review_comment('00000000-0000-0000-0000-0000000000c1', 'Agree', false, (select id from nt_ids where name = 'top'));
+insert into nt_ids select 'on_own', public.add_review_comment('00000000-0000-0000-0000-0000000000c1', 'You said it', false, (select id from nt_ids where name = 'own'));
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+insert into nt_ids select 'mine', public.add_review_comment('00000000-0000-0000-0000-0000000000c1', 'Thanks both', false, (select id from nt_ids where name = 'reply'));
+reset role;
+select codebox_test.ok((select count(*) = 0 from public.notifications where actor_id = recipient_id), 'nobody is notified of their own actions');
+select codebox_test.ok((select count(*) = 3 from public.notifications where recipient_id = '00000000-0000-0000-0000-000000000070' and kind in ('review_comment', 'comment_reply')), 'the review author hears about each comment and reply once');
+select codebox_test.ok((select kind = 'comment_reply' from public.notifications where recipient_id = '00000000-0000-0000-0000-000000000070' and comment_id = (select id from nt_ids where name = 'on_own')), 'a reply to the review author''s own comment is one reply notification, not two');
+select codebox_test.ok((select count(*) = 2 from public.notifications where comment_id = (select id from nt_ids where name = 'mine')), 'a reply to a reply notifies the thread author and the person answered');
+select codebox_test.ok((select count(*) = 1 from public.notifications where comment_id = (select id from nt_ids where name = 'mine') and recipient_id = '00000000-0000-0000-0000-000000000071' and kind = 'comment_reply'), 'the person answered hears about it once');
+select codebox_test.ok((select count(*) = 0 from information_schema.columns where table_schema = 'public' and table_name = 'notifications' and column_name in ('body', 'text', 'summary', 'note')), 'notifications store no text');
+insert into nt_ids select 'n73', id from public.notifications where recipient_id = '00000000-0000-0000-0000-000000000073' order by created_at, id limit 1;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000073', false);
+select codebox_test.ok((select count(*) = 1 and bool_and(movie_title = 'The Matrix') from public.my_notifications() where kind = 'comment_reply' and actor_username = 'nt_friend'), 'reply notifications name the replier and the movie');
+select codebox_test.ok(public.my_unread_notification_count() = 2, 'the unread count covers the caller''s notifications');
+
+-- Read state.
+select public.mark_notifications_read(array[(select id from public.my_notifications() limit 1)]);
+select codebox_test.ok(public.my_unread_notification_count() = 1, 'mark one read');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000071', false);
+select codebox_test.denied($q$select * from public.notifications$q$, '42501', 'users cannot read the notifications table directly');
+select codebox_test.ok(public.mark_notifications_read(array[(select id from nt_ids where name = 'n73')]) = 0, 'users cannot mark other people''s notifications');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000073', false);
+select codebox_test.ok(public.mark_notifications_read() = 1, 'mark all read marks the rest');
+select codebox_test.ok(public.my_unread_notification_count() = 0, 'nothing is unread after mark all read');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.denied($q$select * from public.my_notifications()$q$, '42501', 'guests have no inbox');
+
+-- Opening re-checks the target.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+insert into nt_ids select 'n_top', id from public.my_notifications() where kind = 'review_comment' and actor_username = 'nt_commenter';
+select codebox_test.ok((select available and entry_id = '00000000-0000-0000-0000-0000000000c1' and comment_id = (select id from nt_ids where name = 'top') from public.open_notification((select id from nt_ids where name = 'n_top'))), 'opening returns the target while it is available');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000073', false);
+select codebox_test.ok((select count(*) = 0 from public.open_notification((select id from nt_ids where name = 'n_top'))), 'nobody can open someone else''s notification');
+select public.delete_review_comment((select id from nt_ids where name = 'top'));
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+select codebox_test.ok((select not available and actor_username is null and entry_id is null from public.open_notification((select id from nt_ids where name = 'n_top'))), 'a deleted comment''s notification says the content is gone');
+select codebox_test.ok((select not available and actor_username is null and movie_title is null from public.my_notifications() where id = (select id from nt_ids where name = 'n_top')), 'the inbox withholds details of unavailable targets');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000071', false);
+select public.remove_follow('00000000-0000-0000-0000-000000000070', 'outgoing');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+select codebox_test.ok((select bool_and(not available) from public.my_notifications() where kind = 'new_follower'), 'an unfollow makes the new-follower notification unavailable');
+
+-- Blocks hide the pair's notifications and stop new ones.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000074', false);
+select public.request_follow('00000000-0000-0000-0000-000000000070');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000070', false);
+select codebox_test.ok((select count(*) = 1 from public.my_notifications() where actor_username = 'nt_blocked'), 'fixture: a follow from the soon-blocked account');
+insert into nt_ids select 'n74', id from public.my_notifications() where actor_username = 'nt_blocked';
+insert into public.blocks(blocked_id) values ('00000000-0000-0000-0000-000000000074');
+select codebox_test.ok((select count(*) = 0 from public.my_notifications() where id = (select id from nt_ids where name = 'n74')), 'blocked accounts'' notifications leave the inbox');
+select codebox_test.ok((select count(*) = 0 from public.open_notification((select id from nt_ids where name = 'n74')) where available), 'blocked accounts'' notifications cannot be opened');
+reset role;
+select codebox_test.ok((select count(*) = 1 from public.notifications where actor_id = '00000000-0000-0000-0000-000000000074'), 'blocking hides rather than erases');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000074', false);
+select codebox_test.denied($q$select public.request_follow('00000000-0000-0000-0000-000000000070')$q$, '42501', 'no new follow events across a block');
+reset role;
 select set_config('request.jwt.claim.sub', '', false);
