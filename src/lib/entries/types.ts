@@ -28,7 +28,13 @@ export type SaveEntryInput = EntryFields & {
 
 export type SaveEntryResult =
   | { ok: true; entry: { id: string; version: number } }
-  | { ok: false; code: SaveEntryErrorCode; error: string };
+  | {
+      ok: false;
+      code: SaveEntryErrorCode;
+      error: string;
+      /** Seconds until a RATE_LIMITED save can be retried. */
+      retryAfter?: number;
+    };
 
 export type SaveEntryErrorCode =
   | "INVALID"
@@ -37,6 +43,8 @@ export type SaveEntryErrorCode =
   | "USERNAME_REQUIRED"
   | "CONFLICT"
   | "NOT_RELEASED"
+  | "RATE_LIMITED"
+  | "SUSPENDED"
   | "UNAVAILABLE";
 
 export const NOTE_MAX_LENGTH = 5000;

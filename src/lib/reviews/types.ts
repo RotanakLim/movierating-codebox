@@ -1,6 +1,6 @@
 export type Review = {
   id: string;
-  author: { username: string; avatar: string | null };
+  author: { id: string; username: string; avatar: string | null };
   score: number | null;
   /** Review text; for spoiler reviews it is rendered only after an explicit reveal. */
   note: string | null;

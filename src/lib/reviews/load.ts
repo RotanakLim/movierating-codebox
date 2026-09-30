@@ -52,7 +52,11 @@ export async function loadReviews(
     return [
       {
         id: row.id,
-        author: { username: author.username, avatar: author.avatar },
+        author: {
+          id: row.user_id!,
+          username: author.username,
+          avatar: author.avatar,
+        },
         score: row.score,
         note: row.note,
         spoiler: row.spoiler ?? false,

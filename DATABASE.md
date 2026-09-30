@@ -55,6 +55,25 @@ Files:
     - `pending_account_deletions()` returns the least-attempted rows first, then the oldest.
     - Avatar uploads: the bucket accepts only WebP (what the server stores). Direct uploads must be named `<uid>/<uuid>.webp`, need `can_contribute()` (verified email, username, account not deleted), and are capped at three files per user by `codebox_private.avatar_upload_allowed()`.
     - A `reauth` request-limit scope: 5 password re-checks per user per 15 minutes.
+13. `supabase/migrations/20260930001100_moderation.sql`:
+    - `codebox_private.admin_roles`: the only source of admin status. There are no API grants and no policies, so admins are added with SQL by the project owner (see below). `codebox_private.is_admin()` also treats a banned auth user as not an admin.
+    - Moderation state lives in `codebox_private.hidden_entries` and `codebox_private.suspended_users`, not on user-editable rows.
+      - `public_reviews`, `public_current_ratings`, `movie_rating_summary()` and `can_view_activity()` skip hidden entries and suspended authors. They filter before choosing each author's current score, so an older visible score counts instead.
+      - The entries read policy hides them from everyone but the author, which also covers profiles, diaries and `user_movie_collection`.
+      - `can_contribute()` is false for suspended accounts, and they can't update their `users` row.
+    - Reports now cover reviews:
+      - A report is inserted with `target_entry_id`. The `reports_prepare` trigger sets `target_kind = 'review'`, the author as `target_user_id` (never the client's value) and an `entry_snapshot`.
+      - Only public, visible reviews can be reported.
+      - The trigger also enforces one open report per reporter and review (`reports_one_open_per_review`), or per reporter and user (`reports_one_open_per_user`).
+    - Admin RPCs, each refusing non-admins with `42501`:
+      - `admin_moderate(action, reason, report, target_entry, target_user)` handles `dismiss`, `hide`, `suspend` and `restore`. A reason of 1–1,000 characters is required, and the call writes one `codebox_private.moderation_actions` audit row in the same transaction. Hiding or suspending resolves the report and dismissing dismisses it. Closed reports can't be acted on again, and admins can't suspend themselves.
+      - `admin_reports(status, max_rows)` and `admin_moderation_log(max_rows)`.
+      - `is_admin()` and `my_account_suspended()` report the caller's own status.
+    - Persisted per-user limits:
+      - `codebox_private.action_limit_settings` (defaults: `entry` 20 per 3,600 s, `report` 10 per 86,400 s) and fixed-window counters in `codebox_private.action_limits`.
+      - Triggers on `entries` (insert only) and `reports` raise `PT429`, which PostgREST returns as HTTP 429, with the seconds until reset in `details` and the action in `hint`.
+      - A refused attempt rolls back and isn't counted. Accounts that can't contribute aren't counted either.
+    - `request_account_deletion()` now also clears `entry_snapshot` in reports involving the account.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -125,6 +144,14 @@ Scores and reviews stay visible through `public_reviews` in every mode, except t
 - Onboarding: `username_status(candidate)` (signed-in only) returns `available`, `taken`, `invalid`, or `reserved`; it runs with definer rights so private or blocking accounts' names still count as taken. A username can be claimed once (the update must match `username is null`); duplicates fail with `23505`, reserved or malformed names with `23514`. `set_favorite_movies(movie_ids)` atomically replaces the caller's favorites under RLS. Preferences are written update-then-insert, because clients have no `UPDATE` grant on `user_id` and PostgREST upserts set every column.
 - Clients cannot mutate movie cache data, feed events, author IDs, creation timestamps, or follow status directly.
 - Avatars: users upload through the app's `/api/avatar` route with their own session. Storage policies allow writes only as `avatars/<own id>/<uuid>.webp`, by contributors, at most three files at a time, and `users.avatar` must point into the owner's folder. A direct upload can't skip those rules, but its bytes aren't re-encoded, so only the app's route produces avatars.
+- Reports: verified, non-suspended users insert reports about users (`target_user_id`) or reviews (`target_entry_id`). Nobody but admins can read them, and only through `admin_reports()`, never the reported person. Reporters can't set the status, kind or snapshot.
+- Moderation: only accounts in `codebox_private.admin_roles` can call the admin RPCs. To add yours:
+
+  ```sql
+  insert into codebox_private.admin_roles (user_id, note)
+  select id, 'project owner' from auth.users where email = 'you@example.com';
+  ```
+
 - Account deletion: a user can only delete their own account, through `request_account_deletion(confirmation)`, which requires a recent sign-in and their username. The queue table is unreadable by clients.
 - `service_role`: trusted database access, bypassing RLS as Supabase intends. Only the server-side TMDB cache, request limits, account-deletion cleanup and future administrative operations use it. Never put it in `NEXT_PUBLIC_*`.
 
@@ -221,6 +248,6 @@ npm run test:db
 
 The test runner applies all migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function and a minimal Storage schema (`storage.buckets`, `storage.objects` with RLS, `storage.foldername()`) are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
 
-Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, username rules/availability/duplicates, owner-only preferences and the five-favorite limit, default watchlists, list ownership, history selection, feed updates/deletion, Auth cascade cleanup, avatar storage policies, the theme preference, and account deletion (recent sign-in and confirmation enforced in SQL, immediate removal, session ending, report anonymisation, queue privacy, ordering and retry bookkeeping). The harness stubs `auth.jwt()` the same way Supabase defines it. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
+Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, username rules/availability/duplicates, owner-only preferences and the five-favorite limit, default watchlists, list ownership, history selection, feed updates/deletion, Auth cascade cleanup, avatar storage policies, the theme preference, moderation (no public admin path, review reports with the database-chosen author and snapshot, hide/suspend/restore/dismiss with required reasons and audit rows, hidden and suspended content leaving public reviews, ratings, feeds, collections and the community average, suspended accounts refused), persisted entry and report limits (PT429 with a retry time, per-user budgets, edits not limited, window reset, configurable), and account deletion (recent sign-in and confirmation enforced in SQL, immediate removal, session ending, report anonymisation, queue privacy, ordering and retry bookkeeping). The harness stubs `auth.jwt()` the same way Supabase defines it. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
 
-This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Moderation/suspension, comments/likes, notifications and taste calculations remain subsequent implementation work. Comment tombstones for deleted accounts will be needed once comments exist. Do not treat these core migrations as completion of every feature in SPEC.md.
+This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Comments/likes, notifications and taste calculations remain subsequent implementation work. Comment tombstones for deleted accounts will be needed once comments exist. Do not treat these core migrations as completion of every feature in SPEC.md.

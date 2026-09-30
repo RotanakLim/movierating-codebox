@@ -3,6 +3,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { EyeOff, LoaderCircle } from "lucide-react";
 import { formatScore } from "@/lib/entries/score";
+import {
+  BlockedNotice,
+  ReviewSafety,
+} from "@/components/safety/safety-controls";
 import type { Review, ReviewPage } from "@/lib/reviews/types";
 
 function publishedOn(value: string) {
@@ -41,14 +45,26 @@ function ReviewBody({ review }: { review: Review }) {
 export function ReviewList({
   movieId,
   initial,
+  viewerId = null,
 }: {
   movieId: number;
   initial: ReviewPage;
+  /** Signed-in, onboarded viewer; others get no report/block controls. */
+  viewerId?: string | null;
 }) {
   const [writtenOnly, setWrittenOnly] = useState(false);
+  // Authors blocked from this list: their reviews disappear here at once.
+  const [blocked, setBlocked] = useState<{ id: string; username: string }[]>(
+    [],
+  );
+
   const [page, setPage] = useState<ReviewPage>(initial);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hiddenAuthors = new Set(blocked.map((author) => author.id));
+  const visible = page.reviews.filter(
+    (review) => !hiddenAuthors.has(review.author.id),
+  );
 
   async function fetchPage(options: {
     written: boolean;
@@ -128,7 +144,20 @@ export function ReviewList({
         </div>
       </div>
 
-      {page.reviews.length === 0 ? (
+      {blocked.map((author) => (
+        <div key={author.id} className="mt-5">
+          <BlockedNotice
+            authorId={author.id}
+            username={author.username}
+            onUndo={() =>
+              setBlocked((current) =>
+                current.filter((item) => item.id !== author.id),
+              )
+            }
+          />
+        </div>
+      ))}
+      {visible.length === 0 ? (
         <p className="mt-4 text-sm text-muted">
           {writtenOnly
             ? "No written reviews yet."
@@ -136,7 +165,7 @@ export function ReviewList({
         </p>
       ) : (
         <ul className="mt-5 space-y-4" aria-busy={loading}>
-          {page.reviews.map((review) => (
+          {visible.map((review) => (
             <li
               key={review.id}
               className="rounded-2xl border border-line bg-surface p-4"
@@ -162,6 +191,22 @@ export function ReviewList({
                 </p>
               )}
               <ReviewBody review={review} />
+              {viewerId && review.author.id !== viewerId && (
+                <ReviewSafety
+                  reviewId={review.id}
+                  authorId={review.author.id}
+                  username={review.author.username}
+                  onBlockChange={() =>
+                    setBlocked((current) => [
+                      ...current,
+                      {
+                        id: review.author.id,
+                        username: review.author.username,
+                      },
+                    ])
+                  }
+                />
+              )}
             </li>
           ))}
         </ul>

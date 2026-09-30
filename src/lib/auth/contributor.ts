@@ -14,7 +14,7 @@ type Contributor =
 
 /**
  * Gate for every social or collection mutation: getUser() (never getSession()), a
- * verified email and a claimed username. The database enforces the same rule
+ * verified email, a claimed username and an account that isn't suspended. The database enforces the same rule
  * through can_contribute(); this gives the user a clear message first.
  */
 export async function requireContributor(): Promise<Contributor> {
@@ -25,5 +25,11 @@ export async function requireContributor(): Promise<Contributor> {
   const supabase = await createClient();
   if (!(await readUsername(supabase, user.id)))
     return { ok: false, error: "Choose a username to continue." };
+  const { data: suspended } = await supabase.rpc("my_account_suspended");
+  if (suspended === true)
+    return {
+      ok: false,
+      error: "Your account is suspended, so you can't do this right now.",
+    };
   return { ok: true, user, supabase };
 }

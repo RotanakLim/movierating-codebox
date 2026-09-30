@@ -98,7 +98,7 @@ describe("loadReviews", () => {
     expect(columns).not.toMatch(/watched/);
     expect(page.reviews).toHaveLength(20);
     expect(page.reviews[0]).toMatchObject({
-      author: { username: "film_fan" },
+      author: { id: expect.any(String), username: "film_fan" },
       note: "Review 0",
       edited: false,
     });

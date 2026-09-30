@@ -256,4 +256,10 @@ The subsequent database request specifies the concrete names `users`, `movies`, 
   - Recent re-authentication means a sign-in within the last 10 minutes, per the session's `amr` claim.
   - The database enforces the recent sign-in and the typed username itself, so the account-deletion RPC can't be called around the app's checks. Direct Storage uploads are limited to the server's file shape (`<uid>/<uuid>.webp`), verified contributors and three files per user.
 
-The migrations implement this database subset, not the complete product. The moderation, comment, notification and aggregate/taste features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.
+- Moderation (September 30):
+  - Admin status is the private `admin_roles` table (in `codebox_private`), provisioned with SQL by the owner.
+  - Moderation state is kept in private `hidden_entries` and `suspended_users` tables instead of an `entries` moderation-status column, and every admin action goes to the private `moderation_actions` table (the suggested `moderation_audit`).
+  - Reports cover users and reviews, with the database choosing the review's author and keeping a snapshot.
+  - Per-user limits on new entries (20 an hour) and reports (10 a day) are enforced in the database and configurable there.
+
+The migrations implement this database subset, not the complete product. The comment, notification and aggregate/taste features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.

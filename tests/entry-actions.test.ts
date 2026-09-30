@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   // Decides what each finished query resolves to.
   respond: vi.fn(),
   calls: [] as Call[],
+  suspended: vi.fn(() => false),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
@@ -20,6 +21,10 @@ vi.mock("@/lib/movies/tmdb", () => ({ getMovieDetails: mocks.details }));
 vi.mock("@/lib/supabase/movie-cache", () => ({ cacheMovie: mocks.cache }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
+    rpc: async (name: string) =>
+      name === "my_account_suspended"
+        ? { data: mocks.suspended(), error: null }
+        : { data: null, error: null },
     from(table: string) {
       const call: Call = { table, ops: [] };
       mocks.calls.push(call);
@@ -120,6 +125,28 @@ describe("saveEntry entry shapes", () => {
   ])("saves a %s entry", async (_label, change) => {
     const result = await saveEntry({ ...valid, ...change });
     expect(result).toEqual({ ok: true, entry: { id: ID, version: 1 } });
+  });
+  it("reports the retry time when the new-entry limit is reached", async () => {
+    mocks.respond.mockImplementation((call: Call) =>
+      call.table === "movies"
+        ? { data: { tmdb_id: 693134 }, error: null }
+        : { data: null, error: { code: "PT429", details: "725" } },
+    );
+    expect(await saveEntry(valid)).toEqual({
+      ok: false,
+      code: "RATE_LIMITED",
+      error:
+        "You've added a lot of entries recently. Try again in 13 minutes. Your draft is kept.",
+      retryAfter: 725,
+    });
+  });
+  it("refuses suspended accounts before writing", async () => {
+    mocks.suspended.mockReturnValue(true);
+    expect(await saveEntry(valid)).toMatchObject({
+      ok: false,
+      code: "SUSPENDED",
+    });
+    expect(ops("entries", "insert")).toHaveLength(0);
   });
   it("inserts with the client UUID and no owner, keeping line breaks", async () => {
     await saveEntry(valid);
