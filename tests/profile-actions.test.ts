@@ -74,6 +74,17 @@ beforeEach(() => {
 });
 
 describe("follow and unfollow", () => {
+  it("says when to retry after 30 follow requests in an hour", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: "PT429", details: "1200" },
+    });
+    expect(await follow({ userId: OTHER })).toEqual({
+      ok: false,
+      error:
+        "You've sent a lot of follow requests recently. Try again in 20 minutes.",
+    });
+  });
   it("returns the database's decision (accepted for public, pending otherwise)", async () => {
     mocks.rpc.mockResolvedValue({ data: "pending", error: null });
     expect(await follow({ userId: OTHER })).toEqual({

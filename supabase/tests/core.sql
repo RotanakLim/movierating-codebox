@@ -1119,3 +1119,79 @@ delete from public.users where id = '00000000-0000-0000-0000-000000000041';
 select codebox_test.ok((select count(*) = 4 and bool_and(target_user_id is null) from codebox_private.moderation_actions where reason in ('Harassment of other viewers', 'Reviewed on appeal', 'Repeated harassment', 'Suspension served')), 'audit entries outlive the account without its ID');
 select codebox_test.ok((select count(*) = 0 from codebox_private.suspended_users where user_id = '00000000-0000-0000-0000-000000000041'), 'moderation state is removed with the account');
 select set_config('request.jwt.claim.sub', '', false);
+
+-- Social: Following feed, people search/discovery, follow-request limit.
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000050', now()), ('00000000-0000-0000-0000-000000000051', now()),
+ ('00000000-0000-0000-0000-000000000052', now()), ('00000000-0000-0000-0000-000000000053', now()),
+ ('00000000-0000-0000-0000-000000000054', now()), ('00000000-0000-0000-0000-000000000055', now()),
+ ('00000000-0000-0000-0000-000000000056', now()), ('00000000-0000-0000-0000-000000000057', now());
+update public.users set username = 'soc_viewer' where id = '00000000-0000-0000-0000-000000000050';
+update public.users set username = 'soc_public', profile = '{"display_name": "Pat Public"}' where id = '00000000-0000-0000-0000-000000000051';
+update public.users set username = 'soc_private', visibility = 'private', profile = '{"display_name": "Secret Name"}' where id = '00000000-0000-0000-0000-000000000052';
+update public.users set username = 'soc_followers', visibility = 'followers' where id = '00000000-0000-0000-0000-000000000053';
+update public.users set username = 'soc_blocked' where id = '00000000-0000-0000-0000-000000000054';
+update public.users set username = 'soc_suspended' where id = '00000000-0000-0000-0000-000000000055';
+update public.users set username = 'socxtra' where id = '00000000-0000-0000-0000-000000000056';
+update public.users set username = 'soc_quiet' where id = '00000000-0000-0000-0000-000000000057';
+insert into codebox_private.suspended_users(user_id) values ('00000000-0000-0000-0000-000000000055');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000051', false);
+insert into public.entries(movie_id, score) values (603, 9.0);
+insert into public.entries(movie_id, watched, watched_date) values (680, true, current_date);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000052', false);
+insert into public.entries(movie_id, score) values (603, 4.0);
+insert into public.entries(movie_id, watched, watched_date) values (13, true, current_date);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000053', false);
+insert into public.entries(movie_id, watched, watched_date) values (155, true, current_date);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000050', false);
+insert into public.blocks(blocked_id) values ('00000000-0000-0000-0000-000000000054');
+select codebox_test.ok(public.request_follow('00000000-0000-0000-0000-000000000051') = 'accepted', 'following a public profile is accepted at once');
+select codebox_test.ok(public.request_follow('00000000-0000-0000-0000-000000000052') = 'pending', 'following a private profile is a request');
+select codebox_test.ok(public.request_follow('00000000-0000-0000-0000-000000000053') = 'pending', 'following a followers-only profile is a request');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000053', false);
+select public.respond_follow('00000000-0000-0000-0000-000000000050', true);
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000050', false);
+select codebox_test.ok((select count(*) = 2 from public.following_feed where user_id = '00000000-0000-0000-0000-000000000051'), 'following feed has a followed public profile''s rating and watch');
+select codebox_test.ok((select count(*) = 1 from public.following_feed where user_id = '00000000-0000-0000-0000-000000000053' and kind = 'watched'), 'following feed shows watched-only events when the profile allows it');
+select codebox_test.ok((select count(*) = 0 from public.following_feed where user_id = '00000000-0000-0000-0000-000000000052'), 'pending requests add nothing to the following feed');
+select codebox_test.ok((select count(*) = 0 from public.following_feed where user_id not in ('00000000-0000-0000-0000-000000000051', '00000000-0000-0000-0000-000000000053')), 'following feed only has accepted follows');
+select codebox_test.ok((select count(*) = 1 from public.activity_feed where user_id = '00000000-0000-0000-0000-000000000052' and kind in ('rated', 'reviewed')), 'community feed keeps a private profile''s public rating');
+select codebox_test.ok((select count(*) = 0 from public.activity_feed where user_id = '00000000-0000-0000-0000-000000000052' and kind = 'watched'), 'a private profile''s watched-only events stay private');
+select codebox_test.ok((select count(*) = 0 from information_schema.columns where table_schema = 'public' and table_name = 'activity_feed' and column_name in ('note', 'spoiler', 'watched_date')), 'feed rows carry no review text, spoiler flag or watch date');
+set role anon;
+select codebox_test.denied($q$select * from public.following_feed$q$, '42501', 'guests have no following feed');
+set role authenticated;
+
+-- People search and discovery.
+select codebox_test.ok((select array_agg(username order by username) = '{soc_followers,soc_private,soc_public,soc_quiet}' from public.find_people('soc_')), 'search matches username prefixes, without self, blocked or suspended accounts');
+select codebox_test.ok((select count(*) = 0 from public.find_people('soc_') where username = 'socxtra'), 'underscores in searches are literal');
+select codebox_test.ok((select count(*) = 0 from public.find_people('%')), 'wildcards are not accepted as searches');
+select codebox_test.ok((select display_name is null and visibility = 'private' and follow_status = 'pending' from public.find_people('soc_private')), 'search shows a private profile''s mode and my request, never its display name');
+select codebox_test.ok((select display_name = 'Pat Public' and follow_status = 'accepted' from public.find_people('soc_public')), 'search shows display names the viewer may see');
+select codebox_test.ok((select username = 'soc_public' from public.find_people('soc_public') limit 1), 'an exact username match comes first');
+select codebox_test.ok((select bool_and(visibility = 'public') and bool_or(username = 'soc_public') from public.find_people()), 'discovery lists only public profiles');
+select codebox_test.ok((select array_position(array_agg(username), 'soc_public') < array_position(array_agg(username), 'soc_quiet') from public.find_people(null, 50)), 'discovery puts recently active people first');
+select codebox_test.ok((select count(*) = 0 from public.find_people(null, 50) where username in ('soc_blocked', 'soc_suspended', 'soc_viewer')), 'discovery hides blocked, suspended and self');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.ok((select count(*) > 0 and bool_and(follow_status is null) from public.find_people('soc_')), 'guests can search people');
+
+-- Follow requests are limited per user per hour; re-asking about an existing follow is free.
+reset role;
+update codebox_private.action_limit_settings set max_actions = 3 where action = 'follow';
+select codebox_test.ok((select window_seconds = 3600 from codebox_private.action_limit_settings where action = 'follow'), 'the follow limit window is an hour');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000050', false);
+select public.request_follow('00000000-0000-0000-0000-000000000051');
+select public.request_follow('00000000-0000-0000-0000-000000000051');
+select codebox_test.ok(true, 're-requesting an existing follow is not counted');
+select codebox_test.denied($q$select public.request_follow('00000000-0000-0000-0000-000000000057')$q$, 'PT429', 'new follow requests are limited per user');
+select codebox_test.ok((select count(*) = 0 from public.follows where follower_id = auth.uid() and following_id = '00000000-0000-0000-0000-000000000057'), 'a refused follow request is not saved');
+reset role;
+update codebox_private.action_limit_settings set max_actions = 30 where action = 'follow';
+select set_config('request.jwt.claim.sub', '', false);

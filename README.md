@@ -114,7 +114,21 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 
 ## Implemented routes
 
-- `/`: responsive landing page. The theme follows the system until you pick light or dark; the choice is stored in this browser (read by an inline script before first paint, so there's no flash) and, once signed in, in your account.
+- `/`: the landing page for guests and for accounts that haven't finished onboarding. Signed-in users get their home feed:
+  - Tabs: **Following** (ratings, reviews and watches from people you follow; watched-only entries only when their profile allows it) and **Community** (public ratings and reviews from everyone).
+  - Following is the default once you follow someone. Until then you see Community plus a "Find people" prompt.
+  - Cards show who rated, reviewed or watched which movie, the score, and the date. They never show review text or spoiler content; reviews link to the movie page, where spoilers stay behind a reveal.
+  - Pages load newest first by `(created_at, id)` through `GET /api/feed?tab=&cursor=` (private, no-store).
+  - Every card is a real row read under RLS, so blocked, hidden, suspended and inaccessible activity is left out. An empty feed says so; nothing is invented.
+- `/people`: username search (prefix, any privacy mode, since usernames and avatars are public) and, with no search, public profiles ordered by recent public activity. Blocked and suspended accounts are left out, and display names appear only when the viewer may see the profile. Signed-in users get Follow / Request to follow / Cancel request / Unfollow buttons; guests can search.
+- `/notifications`:
+  - Follow requests, with Accept and Decline.
+  - New followers from the last 30 days, with Follow back and Remove.
+  - Requests you sent, with Cancel.
+
+  The nav badge counts pending requests. The full notification inbox (comments, replies, unread state) isn't built yet.
+
+- Theme: the theme follows the system until you pick light or dark; the choice is stored in this browser (read by an inline script before first paint, so there's no flash) and, once signed in, in your account.
 - `/auth/sign-in`: email/password and Google sign-in.
 - `/auth/sign-up`: email signup with password confirmation and Google signup.
 - `/auth/verify`: resend email confirmation.
@@ -125,7 +139,7 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 - `/auth/error`: expired/canceled/failed auth recovery links.
 - `/account`: server-protected account page and current-browser sign-out.
 - `/onboarding`: required username (3–24 lowercase letters, digits, underscores; reserved names rejected; permanent in v1) with a debounced availability check, then optional favorite genres and up to five favorite movies (skippable), then a notice that profiles are public by default. Sign-in, Google callback, and email confirmation send accounts without a username here first, preserving the safe `next` path. The header shows `Finish setup` until a username exists, then a link to `/u/<username>`.
-- Left navigation (Home, Discover, My Movies, Watchlist, Profile, Settings) on large screens; a top bar with an accessible menu on phones, with no horizontal scroll at 360px. The Profile link comes from `/api/me`, so the layout stays static.
+- Left navigation (Home, Discover, My Movies, Watchlist, Notifications, Profile, Settings) on large screens; a top bar with an accessible menu on phones, with no horizontal scroll at 360px. The Profile link comes from `/api/me`, so the layout stays static.
 - `/me/movies`: the owner's collection, one row per movie with the current score, last known watch date and watch count.
   - Sort by highest or lowest rated, title, or latest watch. Unrated movies and unknown dates sort last, with ties broken by title and then movie ID. There is no manual ordering.
   - Filter to rated and/or watched movies.
@@ -161,7 +175,7 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 
   Right after responding (`after()`), the server removes the avatar files and the auth identity with the service role (`src/lib/supabase/account-cleanup.ts`). A 404 counts as already done. If that fails, the queue keeps it, and `GET /api/cron/account-deletions` (Vercel Cron, daily, `Authorization: Bearer $CRON_SECRET`) retries it, least-attempted first so a few permanent failures can't block newer deletions. Nothing in the retry path can restore the account. Unsent entry drafts in the tab are cleared only once deletion has succeeded. `/account/deleted` explains what was removed and that provider backups expire on their normal schedule.
 
-- `GET /api/me`: the signed-in user's username for that header link, and their account theme (or null) (private, no-store; display only, never used for authorization). The header only calls it when a Supabase session cookie exists, so guests make no request and public pages stay static.
+- `GET /api/me`: the signed-in user's username for that header link, their pending follow-request count for the Notifications badge, and (with `?theme=1`) their account theme or null (private, no-store; display only, never used for authorization). The header only calls it when a Supabase session cookie exists, so guests make no request and public pages stay static.
 
 `src/lib/supabase/client.ts` supplies the browser client for future interactive data features; `server.ts` supplies a request-scoped cookie client. `src/middleware.ts` refreshes sessions with `getClaims()` and forwards updated cookies; this is **middleware.ts**, not Next.js 16's proxy.ts. It skips `/api/movies/search`, and only marks a response `private, no-store` when it refreshes auth cookies or the path is under `/auth` or `/account`, so public pages stay cacheable. `getClaims()` verifies the JWT locally when the project uses asymmetric JWT signing keys (otherwise it calls Auth), but cannot see sessions revoked since the token was issued, so protected pages and server actions independently verify identity via `getUser()`, never `getSession()`. Pages that call `getUser()` always render dynamically; `/about` and `/discover` are static. Callback redirects use the configured canonical origin and reject external `next` values. Auth responses are private/no-store and auth pages are noindex. Account information is not exposed to guests.
 
@@ -173,6 +187,7 @@ The database stores these limits and enforces them per account, so direct API ca
 
 - New entries: 20 per hour (edits aren't limited).
 - Reports: 10 per day.
+- Follow requests: 30 per hour. Only new or renewed requests count; asking again about an existing follow doesn't.
 - Avatar uploads: 10 per hour.
 - Password re-checks: 5 per 15 minutes.
 - Movie search and selection: see "Movie discovery setup".
@@ -184,7 +199,7 @@ To change the entry or report limits, run SQL like this in the Supabase SQL Edit
 ```sql
 update codebox_private.action_limit_settings
 set max_actions = 30, window_seconds = 3600   -- 30 new entries per hour
-where action = 'entry';                       -- or 'report' (default 10 per 86400 s)
+where action = 'entry';   -- or 'report' (10 per 86400 s) or 'follow' (30 per 3600 s)
 ```
 
 ### Make yourself an admin
@@ -217,20 +232,20 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
   - A diary, a watchlist and custom lists.
 - Profiles:
   - Collections that visitors can sort, with four privacy modes.
-  - Follows and follow requests.
+  - Follow, request, cancel, unfollow and remove-follower from profiles, `/people` and `/notifications`.
+  - `/people` username search and public profile discovery.
   - Public reviews that stay visible when a profile is restricted.
 - Safety:
   - Blocking from profiles and review cards.
   - Reports on users and reviews.
   - The admin queue with audited dismiss, hide, suspend and restore.
-  - Persisted limits on new entries, reports, avatars and password re-checks.
+  - Persisted limits on new entries, reports, follow requests, avatars and password re-checks.
+- Home: Following and Community feeds with cursor pagination and a find-people prompt for new users.
 - Light and dark themes with no flash, and no horizontal scrolling at 360 px.
 
 **Not built yet** (SPEC's social and personalization milestones)
 
-- The signed-in home feed. `/` is still the marketing landing page. Following and Community feeds exist in the database but have no UI.
-- Notifications and `/notifications`.
-- `/people` username search.
+- The full notification inbox. `/notifications` shows follow activity only: no comment or reply notifications, no unread state, no polling.
 - `/reviews/[id]` review pages.
 - Review likes, comments and replies (so there's nothing to report or block there yet).
 - Recommendations and taste matching.
@@ -240,7 +255,7 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
 
 - Users aren't told when a moderator hides their review or suspends them. The author still sees a hidden review as normal, and suspended users only find out when an action is refused.
 - There is no appeal flow; restores happen only from `/admin/reports`.
-- Follows, blocks and list changes aren't rate-limited yet.
+- Blocks and list changes aren't rate-limited yet.
 - Direct Storage uploads can place up to 3 files that weren't re-encoded (named `.webp`) in the user's own avatar folder. The app never uses them.
 - Not yet checked on the hosted Supabase project:
   - the database functions that write to the `auth` and `storage` schemas (account deletion, avatar policies)

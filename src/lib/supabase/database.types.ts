@@ -697,6 +697,74 @@ export type Database = {
           },
         ];
       };
+      following_feed: {
+        Row: {
+          avatar: string | null;
+          created_at: string | null;
+          entry_id: string | null;
+          id: string | null;
+          kind: Database["public"]["Enums"]["activity_kind"] | null;
+          movie_id: number | null;
+          poster: string | null;
+          score: number | null;
+          summary: string | null;
+          title: string | null;
+          user_id: string | null;
+          username: string | null;
+          year: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "current_entries";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "public_current_ratings";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "public_reviews";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_movie_id_fkey";
+            columns: ["movie_id"];
+            isOneToOne: false;
+            referencedRelation: "movies";
+            referencedColumns: ["tmdb_id"];
+          },
+          {
+            foreignKeyName: "activity_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "activity_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       public_current_ratings: {
         Row: {
           id: string | null;
@@ -892,6 +960,18 @@ export type Database = {
       consume_movie_request_limit: {
         Args: { key_hash: string; request_scope: string };
         Returns: Json;
+      };
+      find_people: {
+        Args: { max_rows?: number; search?: string };
+        Returns: {
+          avatar: string;
+          display_name: string;
+          follow_status: Database["public"]["Enums"]["follow_status"];
+          id: string;
+          last_active: string;
+          username: string;
+          visibility: Database["public"]["Enums"]["profile_visibility"];
+        }[];
       };
       is_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       movie_rating_summary: {
