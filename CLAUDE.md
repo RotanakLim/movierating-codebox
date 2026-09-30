@@ -1,8 +1,9 @@
 # CodeBox Movies — project rules
 
 - Stack: Next.js 15 App Router, TypeScript, Tailwind 4, Supabase (Postgres/Auth/Storage) via @supabase/ssr, TMDB, Vercel.
-- The ONLY rating system is 1–5 stars in half-star steps, stored as integer `star_half_units` 2–10 (NULL = unrated).
-  No buckets, no comparisons, no decimal 0–10 scores, no manual ranking positions. Never reintroduce them.
+- The ONLY rating system is a decimal score 0.0–10.0 with one decimal place (e.g. 1.0, 5.0, 9.5), stored as
+  `score numeric(3,1)` (NULL = unrated). No stars/half-stars, no buckets, no comparisons, no manual ranking
+  positions. Never reintroduce them.
 - SPEC.md is the product source of truth; README.md and DATABASE.md must stay in sync with the code.
 - Database changes are NEW forward migrations in supabase/migrations/ (timestamped). Never edit a migration that
   already exists in git. Add assertions for new SQL behavior to supabase/tests/core.sql.
