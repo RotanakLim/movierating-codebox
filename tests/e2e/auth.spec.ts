@@ -8,9 +8,10 @@ test("landing page and auth navigation", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Make room for favorites." }),
   ).toBeVisible();
+  // Google sign-in is off until GOOGLE_AUTH_ENABLED=true.
   await expect(
     page.getByRole("button", { name: "Continue with Google" }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Create account", exact: true }),
   ).toBeDisabled();

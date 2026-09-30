@@ -11,6 +11,7 @@ const auth = vi.hoisted(() => ({
 }));
 // The users-row lookup behind the onboarding redirect.
 const profile = vi.hoisted(() => vi.fn());
+const google = vi.hoisted(() => ({ enabled: true }));
 const from = vi.hoisted(() => () => ({
   select: () => ({ eq: () => ({ maybeSingle: profile }) }),
 }));
@@ -20,6 +21,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/env", () => ({
   getPublicConfig: () => ({ siteUrl: "https://codebox.test" }),
+  googleAuthEnabled: () => google.enabled,
 }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -51,6 +53,7 @@ beforeEach(() => {
     data: { user: { id: "user-1", email_confirmed_at: "2026-09-30" } },
     error: null,
   });
+  google.enabled = true;
   profile.mockReset();
   profile.mockResolvedValue({ data: { username: "film_fan" }, error: null });
 });
@@ -125,6 +128,13 @@ describe("auth actions", () => {
         skipBrowserRedirect: true,
       },
     });
+  });
+  it("refuses Google sign-in while it's switched off", async () => {
+    google.enabled = false;
+    expect((await signInWithGoogle({}, form({ next: "/account" }))).error).toBe(
+      "Google sign-in isn't available. Use your email instead.",
+    );
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
   });
   it("provides a generic reset response", async () => {
     auth.resetPasswordForEmail.mockResolvedValue({ error: null });
