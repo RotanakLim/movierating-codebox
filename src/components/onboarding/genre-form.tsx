@@ -9,15 +9,19 @@ export function GenreForm({
   next,
   selected,
   skipHref,
+  mode = "onboarding",
 }: {
   next: string;
   selected: number[];
-  skipHref: string;
+  skipHref?: string;
+  /** Settings saves in place; onboarding continues to the next step. */
+  mode?: "onboarding" | "settings";
 }) {
   const [state, action, pending] = useActionState(saveGenres, {});
   return (
     <form action={action} className="mt-8">
       <input type="hidden" name="next" value={next} />
+      <input type="hidden" name="mode" value={mode} />
       <fieldset>
         <legend className="sr-only">Favorite genres</legend>
         <div className="flex flex-wrap gap-2">
@@ -43,14 +47,27 @@ export function GenreForm({
           {state.error}
         </p>
       )}
+      {state.saved && (
+        <p role="status" className="mt-5 text-sm text-muted">
+          Saved.
+        </p>
+      )}
       <div className="mt-8 flex flex-wrap items-center gap-4">
         <button className="button-primary" type="submit" disabled={pending}>
-          {pending ? "Saving…" : "Save and continue"}
-          {!pending && <ArrowRight size={16} aria-hidden="true" />}
+          {pending
+            ? "Saving…"
+            : mode === "settings"
+              ? "Save genres"
+              : "Save and continue"}
+          {!pending && mode === "onboarding" && (
+            <ArrowRight size={16} aria-hidden="true" />
+          )}
         </button>
-        <Link href={skipHref} className="text-sm text-muted hover:text-ink">
-          Skip for now
-        </Link>
+        {skipHref && (
+          <Link href={skipHref} className="text-sm text-muted hover:text-ink">
+            Skip for now
+          </Link>
+        )}
       </div>
     </form>
   );

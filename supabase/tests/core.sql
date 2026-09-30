@@ -763,3 +763,80 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000011
 select codebox_test.denied($q$select * from public.reports$q$, '42501', 'reported users cannot read reports about them');
 reset role;
 
+
+-- Settings: avatar storage policies, account theme, and account deletion.
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000020', now()),
+ ('00000000-0000-0000-0000-000000000021', now());
+update public.users set username = 'leaving' where id = '00000000-0000-0000-0000-000000000020';
+update public.users set username = 'staying' where id = '00000000-0000-0000-0000-000000000021';
+insert into auth.sessions(user_id) values ('00000000-0000-0000-0000-000000000020'), ('00000000-0000-0000-0000-000000000020'), ('00000000-0000-0000-0000-000000000021');
+select codebox_test.ok((select public and file_size_limit = 2097152 and allowed_mime_types = '{image/jpeg,image/png,image/webp}' from storage.buckets where id = 'avatars'), 'avatars bucket is public, 2 MB, JPEG/PNG/WebP only');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000020', false);
+insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/face.webp');
+select codebox_test.ok((select count(*) = 1 from storage.objects where bucket_id = 'avatars'), 'owner can upload to and see their own avatar folder');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000021/face.webp')$q$, '42501', 'cannot upload into another user''s avatar folder');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/nested/face.webp')$q$, '42501', 'avatar uploads cannot use nested folders');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', 'face.webp')$q$, '42501', 'avatar uploads must be inside the owner folder');
+update public.users set avatar = '00000000-0000-0000-0000-000000000020/face.webp' where id = auth.uid();
+select codebox_test.denied($q$update public.users set avatar = '00000000-0000-0000-0000-000000000021/face.webp' where id = auth.uid()$q$, '23514', 'profile avatar must point into the owner folder');
+insert into public.user_preferences(theme) values ('dark');
+select codebox_test.denied($q$update public.user_preferences set theme = 'neon'$q$, '23514', 'theme must be system, light or dark');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000021', false);
+select codebox_test.ok((select count(*) = 0 from storage.objects where bucket_id = 'avatars'), 'other users cannot list someone''s avatar files');
+with touched as (delete from storage.objects where bucket_id = 'avatars' returning id)
+  select codebox_test.ok((select count(*) = 0 from touched), 'other users cannot delete someone''s avatar');
+select codebox_test.ok((select count(*) = 0 from public.user_preferences where user_id = '00000000-0000-0000-0000-000000000020'), 'account theme is private');
+insert into public.reports(target_user_id, reason, details) values ('00000000-0000-0000-0000-000000000020', 'spam', 'Names leaving');
+set role anon;
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', 'x/face.webp')$q$, '42501', 'guests cannot upload avatars');
+select codebox_test.denied($q$select public.request_account_deletion()$q$, '42501', 'guests cannot request account deletion');
+
+-- The leaving user has content everywhere, then deletes their account.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000020', false);
+insert into public.entries(movie_id, score, note, watched) values (27205, 7.5, 'Goodbye review', false);
+insert into public.lists(name) values ('Leaving list');
+insert into public.list_items(list_id, movie_id) select id, 157336 from public.lists where user_id = auth.uid() and kind = 'custom';
+select public.request_follow('00000000-0000-0000-0000-000000000021');
+insert into public.reports(target_user_id, reason, details) values ('00000000-0000-0000-0000-000000000021', 'other', 'Details about staying');
+select codebox_test.denied($q$select * from public.pending_account_deletions()$q$, '42501', 'users cannot read the deletion queue');
+select public.request_account_deletion();
+select public.request_account_deletion();
+select codebox_test.ok(true, 'repeating the deletion request is harmless');
+select codebox_test.denied($q$insert into public.entries(movie_id, score) values (27205, 5.0)$q$, '42501', 'a deleted account can no longer contribute, even with a live token');
+reset role;
+select codebox_test.ok((select banned_until > now() + interval '50 years' from auth.users where id = '00000000-0000-0000-0000-000000000020'), 'sign-in is disabled immediately');
+select codebox_test.ok((select count(*) = 0 from auth.sessions where user_id = '00000000-0000-0000-0000-000000000020'), 'every session is ended immediately');
+select codebox_test.ok((select count(*) = 1 from auth.sessions where user_id = '00000000-0000-0000-0000-000000000021'), 'other people keep their sessions');
+select codebox_test.ok((select count(*) = 0 from public.users where id = '00000000-0000-0000-0000-000000000020'), 'profile is removed immediately');
+select codebox_test.ok((select count(*) = 0 from public.entries where user_id = '00000000-0000-0000-0000-000000000020'), 'ratings and reviews are removed immediately');
+select codebox_test.ok((select count(*) = 0 from public.activity where user_id = '00000000-0000-0000-0000-000000000020'), 'feed events are removed immediately');
+select codebox_test.ok((select count(*) = 0 from public.lists where user_id = '00000000-0000-0000-0000-000000000020'), 'watchlist and lists are removed immediately');
+select codebox_test.ok((select count(*) = 0 from public.follows where follower_id = '00000000-0000-0000-0000-000000000020' or following_id = '00000000-0000-0000-0000-000000000020'), 'relationships are removed immediately');
+select codebox_test.ok((select count(*) = 0 from public.user_preferences where user_id = '00000000-0000-0000-0000-000000000020'), 'preferences are removed immediately');
+select codebox_test.ok((select count(*) = 2 and bool_and(details is null) from public.reports where reporter_id is null or target_user_id is null), 'reports involving the account remain, anonymised and redacted');
+select codebox_test.ok((select count(*) = 1 from public.reports where reporter_id is null and target_user_id = '00000000-0000-0000-0000-000000000021'), 'a report filed by the deleted user keeps only the non-identifying target');
+set role service_role;
+select codebox_test.ok((select count(*) = 1 from public.pending_account_deletions() where user_id = '00000000-0000-0000-0000-000000000020'), 'cleanup is queued for the server');
+select public.record_account_deletion_attempt('00000000-0000-0000-0000-000000000020', 'storage timeout');
+select codebox_test.ok((select attempts = 1 from public.pending_account_deletions() where user_id = '00000000-0000-0000-0000-000000000020'), 'a failed cleanup attempt stays queued for retry');
+select public.record_account_deletion_attempt('00000000-0000-0000-0000-000000000020');
+select codebox_test.ok((select count(*) = 0 from public.pending_account_deletions() where user_id = '00000000-0000-0000-0000-000000000020'), 'a successful cleanup leaves the queue');
+reset role;
+select codebox_test.ok((select completed_at is not null and last_error is null and attempts = 2 from codebox_private.account_deletions where user_id = '00000000-0000-0000-0000-000000000020'), 'the queue keeps a minimal completion record');
+delete from auth.users where id = '00000000-0000-0000-0000-000000000020';
+select codebox_test.ok((select count(*) = 0 from public.users where id = '00000000-0000-0000-0000-000000000020'), 'deleting the auth identity never restores the profile');
+set role service_role;
+do $$
+begin
+  for attempt in 1..10 loop
+    if (public.consume_movie_request_limit('avatar', repeat('d',64)) ->> 'allowed')::boolean is not true then raise exception 'Avatar upload denied before limit'; end if;
+  end loop;
+  perform codebox_test.ok(not (public.consume_movie_request_limit('avatar', repeat('d',64)) ->> 'allowed')::boolean, 'avatar uploads are limited to 10 per hour');
+  perform codebox_test.ok((public.consume_movie_request_limit('avatar', repeat('d',64)) ->> 'retry_after')::integer > 600, 'the avatar limit window is an hour');
+end;
+$$;
+reset role;

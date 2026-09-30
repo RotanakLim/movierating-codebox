@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Lock, UserRound } from "lucide-react";
+import { Lock } from "lucide-react";
 import { getUser } from "@/lib/auth/user";
 import { loadProfileCard, loadProfileDetails } from "@/lib/profiles/load";
 import { VISIBILITY_LABELS } from "@/lib/profiles/types";
+import { avatarUrl } from "@/lib/profiles/avatar-url";
+import { Avatar } from "@/components/avatar";
 import { ProfileTabs } from "@/components/profiles/tabs";
 import { SocialControls } from "@/components/profiles/social-controls";
 
@@ -45,9 +47,7 @@ export default async function ProfileLayout({ children, params }: Props) {
     <section className="py-10 sm:py-14">
       <div className="flex flex-wrap items-start justify-between gap-6">
         <div className="flex items-center gap-4">
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-line/70 text-muted">
-            <UserRound size={28} aria-hidden="true" />
-          </span>
+          <Avatar src={avatarUrl(card.avatar)} size={64} />
           <div>
             <h1 className="font-display text-3xl">
               {details?.displayName ?? `@${card.username}`}

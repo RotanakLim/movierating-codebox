@@ -1,18 +1,21 @@
 "use client";
 import { Moon, Sun } from "lucide-react";
-export function ThemeToggle() {
+import { saveTheme } from "@/app/settings/actions";
+import { applyTheme } from "@/lib/settings/theme";
+
+/** Quick light/dark switch. Signed-in choices are also saved to the account. */
+export function ThemeToggle({ signedIn = false }: { signedIn?: boolean }) {
   return (
     <button
       type="button"
       className="rounded-full border border-line p-2.5 text-muted hover:text-ink"
       aria-label="Toggle light and dark theme"
       onClick={() => {
-        const dark = document.documentElement.classList.toggle("dark");
-        try {
-          localStorage.setItem("codebox-theme", dark ? "dark" : "light");
-        } catch {
-          /* Storage can be unavailable in private contexts. */
-        }
+        const theme = document.documentElement.classList.contains("dark")
+          ? "light"
+          : "dark";
+        applyTheme(theme);
+        if (signedIn) saveTheme({ theme }).catch(() => undefined);
       }}
     >
       <Sun size={18} className="hidden dark:block" aria-hidden="true" />

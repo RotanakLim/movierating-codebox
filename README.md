@@ -21,7 +21,7 @@ Open http://localhost:3000. Without credentials, the landing page runs and auth 
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | The project's **publishable** key (a legacy anon key also works)              |
 | `NEXT_PUBLIC_SITE_URL`                 | Exact canonical app origin, e.g. `http://localhost:3000`; HTTPS in production |
 
-The public key is intentionally browser-safe when database RLS is properly configured. **Never use a secret/service-role key here.** The separate server-only `SUPABASE_SERVICE_ROLE_KEY` is used for movie caching and request-limit writes; `RATE_LIMIT_SECRET` keys the anonymised request-limit hashes. `.env.local` is ignored; `.env.example` contains blank key fields. Google secrets are configured in Supabase, not in frontend environment variables. Restart the dev server after changing environment values; rebuild deployments after changing public variables.
+The public key is intentionally browser-safe when database RLS is properly configured. **Never use a secret/service-role key here.** The separate server-only `SUPABASE_SERVICE_ROLE_KEY` is used for movie caching, request-limit writes and account-deletion cleanup; `CRON_SECRET` authorizes the scheduled cleanup retry; `RATE_LIMIT_SECRET` keys the anonymised request-limit hashes. `.env.local` is ignored; `.env.example` contains blank key fields. Google secrets are configured in Supabase, not in frontend environment variables. Restart the dev server after changing environment values; rebuild deployments after changing public variables.
 
 ## Movie discovery setup
 
@@ -32,6 +32,7 @@ Add these **server-only** values to `.env.local` and your Vercel environment:
 | `TMDB_API_READ_ACCESS_TOKEN` | TMDB API Read Access Token, not the shorter API key              |
 | `SUPABASE_SERVICE_ROLE_KEY`  | Supabase service-role key for the same project as the public URL |
 | `RATE_LIMIT_SECRET`          | At least 32 random bytes: generate with `openssl rand -hex 32`   |
+| `CRON_SECRET`                | At least 32 random characters (`openssl rand -hex 32`)           |
 
 Never prefix any of these with `NEXT_PUBLIC_`. `RATE_LIMIT_SECRET` is only an HMAC key for request-limit counters: it must be at least 64 characters and must not reuse another key. Rotating it just resets current quotas. Apply all SQL migrations in timestamp order; see [DATABASE.md](DATABASE.md). Search requires TMDB plus Supabase configuration because request quotas are persisted in the database. Restart after configuring credentials. Missing configuration produces a recoverable setup message.
 
@@ -113,7 +114,7 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 
 ## Implemented routes
 
-- `/`: responsive landing page, system-aware light/dark theme with local preference.
+- `/`: responsive landing page. The theme follows the system until you pick light or dark; the choice is stored in this browser (read by an inline script before first paint, so there's no flash) and, once signed in, in your account.
 - `/auth/sign-in`: email/password and Google sign-in.
 - `/auth/sign-up`: email signup with password confirmation and Google signup.
 - `/auth/verify`: resend email confirmation.
@@ -135,12 +136,27 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
   - Everyone else sees a restricted shell: username, avatar, a restriction message, and follow/request, block and report controls.
   - Block explains that follows are removed and that public content stays visible to signed-out visitors.
   - Reports return a receipt and are never readable by clients.
-- `/settings`: profile privacy (public, followers, friends, private), incoming follow requests (accept or decline), followers (remove), and blocked accounts (unblock).
-- `GET /api/me`: the signed-in user's username for that header link (private, no-store; display only, never used for authorization). The header only calls it when a Supabase session cookie exists, so guests make no request and public pages stay static.
+- `/settings`:
+  - Profile: avatar upload (see below), display name (max 60) and bio (max 300), saved by the `saveProfile` server action (zod, trimmed, blank fields removed).
+  - Favorite genres and up to five favorite movies, reusing the onboarding forms, which save in place here.
+  - Profile privacy (public, followers, friends, private) with a plain explanation of each mode.
+  - Theme: System, Light or Dark. The choice applies at once, is stored in this browser, and is saved to `user_preferences.theme`. After sign-in the account theme wins; if the account has none yet, the browser's choice is saved to it. The header's light/dark toggle also saves when signed in.
+  - Incoming follow requests (accept or decline), followers (remove) and blocked accounts (unblock).
+  - Account deletion (see below).
+- `POST /api/avatar` (and `DELETE` to remove): the raw image is the request body. It checks the site origin, a verified signed-in user with a username, and a limit of 10 uploads per hour. The body is capped at 2 MB while streaming. JPEG, PNG and WebP are accepted by their bytes, not the file name or browser MIME type (SVG, GIF and anything else are refused). `sharp` decodes the first frame only, with a pixel limit, then re-encodes to a 256×256 WebP with metadata such as EXIF/GPS removed. The file is stored with the user's own session under `avatars/<user id>/<random>.webp`; the previous file is then deleted. The bucket is public for reads by URL, but only the owner can list, add or remove files in their folder.
+- Account deletion requires a sign-in within the last 10 minutes, taken from the session's `amr` claim, which token refreshes don't change. Otherwise Settings asks for the password again, or Google for Google accounts. The user must also type their username. `request_account_deletion()` then, in one transaction:
+  - bans the auth user and ends every session;
+  - deletes the profile and everything that cascades from it;
+  - anonymises reports;
+  - queues cleanup.
+
+  The server then removes the avatar files and the auth identity with the service role (`src/lib/supabase/account-cleanup.ts`). A 404 counts as already done. If that fails, the queue keeps it, and `GET /api/cron/account-deletions` (Vercel Cron, daily, `Authorization: Bearer $CRON_SECRET`) retries it. Nothing in the retry path can restore the account. `/account/deleted` explains what was removed and that provider backups expire on their normal schedule.
+
+- `GET /api/me`: the signed-in user's username for that header link, and their account theme (or null) (private, no-store; display only, never used for authorization). The header only calls it when a Supabase session cookie exists, so guests make no request and public pages stay static.
 
 `src/lib/supabase/client.ts` supplies the browser client for future interactive data features; `server.ts` supplies a request-scoped cookie client. `src/middleware.ts` refreshes sessions with `getClaims()` and forwards updated cookies; this is **middleware.ts**, not Next.js 16's proxy.ts. It skips `/api/movies/search`, and only marks a response `private, no-store` when it refreshes auth cookies or the path is under `/auth` or `/account`, so public pages stay cacheable. `getClaims()` verifies the JWT locally when the project uses asymmetric JWT signing keys (otherwise it calls Auth), but cannot see sessions revoked since the token was issued, so protected pages and server actions independently verify identity via `getUser()`, never `getSession()`. Pages that call `getUser()` always render dynamically; `/about` and `/discover` are static. Callback redirects use the configured canonical origin and reject external `next` values. Auth responses are private/no-store and auth pages are noindex. Account information is not exposed to guests.
 
-Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Theme account synchronization, notifications, feeds, avatars, display name and bio editing, the report admin queue, and the rest of `SPEC.md` remain future work.
+Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Notifications, feeds, the report admin queue, and the rest of `SPEC.md` remain future work.
 
 PostCSS is overridden to a patched 8.x release because Next.js 15 pins an older transitive version; retain this override until the framework dependency is patched.
 
@@ -162,6 +178,6 @@ After setting up your real project, manually verify: signup → email confirmati
 
 ## Deploy to Vercel
 
-Import this repository as a Next.js project. Add all six environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. Auth secrets and test accounts are not bundled in the repository.
+Import this repository as a Next.js project. Add all seven environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. `vercel.json` schedules the daily account-deletion retry; Vercel sends `CRON_SECRET` automatically once it is set. Auth secrets and test accounts are not bundled in the repository.
 
 Official references: [Next.js 15 installation](https://nextjs.org/docs/15/app/getting-started/installation), [Supabase SSR](https://supabase.com/docs/guides/auth/server-side/creating-a-client), [email/password authentication](https://supabase.com/docs/guides/auth/passwords).
