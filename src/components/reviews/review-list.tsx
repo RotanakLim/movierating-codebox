@@ -2,7 +2,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { LoaderCircle } from "lucide-react";
+import { LoadError } from "@/components/load-error";
 import { SpoilerText } from "@/components/reviews/spoiler-text";
+import { getJson } from "@/lib/http/get-json";
 import { formatScore } from "@/lib/entries/score";
 import {
   BlockedNotice,
@@ -43,7 +45,7 @@ export function ReviewList({
 
   const [page, setPage] = useState<ReviewPage>(initial);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const hiddenAuthors = new Set(blocked.map((author) => author.id));
   const visible = page.reviews.filter(
     (review) => !hiddenAuthors.has(review.author.id),
@@ -56,15 +58,10 @@ export function ReviewList({
     const query = new URLSearchParams();
     if (options.written) query.set("written", "1");
     if (options.cursor) query.set("cursor", options.cursor);
-    const response = await fetch(`/api/movies/${movieId}/reviews?${query}`);
-    const body = await response.json();
-    if (!response.ok)
-      throw new Error(
-        typeof body.error === "string"
-          ? body.error
-          : "Reviews are unavailable right now.",
-      );
-    return body as ReviewPage;
+    return getJson<ReviewPage>(
+      `/api/movies/${movieId}/reviews?${query}`,
+      "Reviews are unavailable right now.",
+    );
   }
   async function changeFilter(written: boolean) {
     const before = writtenOnly;
@@ -75,7 +72,7 @@ export function ReviewList({
       setPage(await fetchPage({ written, cursor: null }));
     } catch (failure) {
       setWrittenOnly(before);
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure);
     } finally {
       setLoading(false);
     }
@@ -100,7 +97,7 @@ export function ReviewList({
         };
       });
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure);
     } finally {
       setLoading(false);
     }
@@ -200,11 +197,7 @@ export function ReviewList({
           ))}
         </ul>
       )}
-      {error && (
-        <p role="alert" className="mt-4 text-sm text-muted">
-          {error}
-        </p>
-      )}
+      {error !== null && <LoadError error={error} />}
       {page.nextCursor && (
         <button
           type="button"
@@ -219,7 +212,11 @@ export function ReviewList({
               aria-hidden="true"
             />
           )}
-          {loading ? "Loading…" : "Load more reviews"}
+          {loading
+            ? "Loading…"
+            : error !== null
+              ? "Try again"
+              : "Load more reviews"}
         </button>
       )}
     </section>

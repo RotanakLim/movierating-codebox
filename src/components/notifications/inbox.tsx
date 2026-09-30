@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { LoaderCircle } from "lucide-react";
 import { Avatar } from "@/components/avatar";
+import { LoadError } from "@/components/load-error";
 import { notifyProfileChanged } from "@/components/profile-link";
+import { getJson } from "@/lib/http/get-json";
 import { markNotificationsRead } from "@/app/notifications/actions";
 import { avatarUrl } from "@/lib/profiles/avatar-url";
 import {
@@ -21,19 +23,12 @@ function when(value: string) {
   }).format(new Date(value));
 }
 
-async function fetchPage(cursor?: string | null): Promise<NotificationPage> {
+function fetchPage(cursor?: string | null) {
   const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
-  const response = await fetch(`/api/notifications${query}`, {
-    cache: "no-store",
-  });
-  const body = await response.json();
-  if (!response.ok)
-    throw new Error(
-      typeof body.error === "string"
-        ? body.error
-        : "Notifications are unavailable right now.",
-    );
-  return body as NotificationPage;
+  return getJson<NotificationPage>(
+    `/api/notifications${query}`,
+    "Notifications are unavailable right now.",
+  );
 }
 
 /**
@@ -45,7 +40,7 @@ export function NotificationInbox({ initial }: { initial: NotificationPage }) {
   const [items, setItems] = useState<InboxNotification[]>(initial.items);
   const [nextCursor, setNextCursor] = useState(initial.nextCursor);
   const [unread, setUnread] = useState(initial.unread);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [pending, startTransition] = useTransition();
   const inFlight = useRef(false);
@@ -97,7 +92,7 @@ export function NotificationInbox({ initial }: { initial: NotificationPage }) {
         ok: false as const,
         error: "That didn't work. Please try again.",
       }));
-      if (!result.ok) return setError(result.error);
+      if (!result.ok) return setError(new Error(result.error));
       setItems((current) =>
         current.map((item) =>
           ids === null || ids.includes(item.id)
@@ -123,7 +118,7 @@ export function NotificationInbox({ initial }: { initial: NotificationPage }) {
       });
       setNextCursor(page.nextCursor);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      setError(failure);
     } finally {
       setLoading(false);
     }
@@ -149,11 +144,7 @@ export function NotificationInbox({ initial }: { initial: NotificationPage }) {
           </button>
         )}
       </div>
-      {error && (
-        <p role="alert" className="mb-3 text-sm text-muted">
-          {error}
-        </p>
-      )}
+      {error !== null && <LoadError error={error} className="mb-3" />}
       {items.length ? (
         <ul className="divide-y divide-line rounded-2xl border border-line">
           {items.map((item) => (
@@ -181,7 +172,7 @@ export function NotificationInbox({ initial }: { initial: NotificationPage }) {
               {!item.read && (
                 <button
                   type="button"
-                  className="shrink-0 text-xs text-muted hover:text-ink"
+                  className="tap-target shrink-0 text-xs text-muted hover:text-ink"
                   disabled={pending}
                   onClick={() => mark([item.id])}
                   aria-label={`Mark read: ${notificationText(item)}`}
@@ -212,7 +203,7 @@ export function NotificationInbox({ initial }: { initial: NotificationPage }) {
               aria-hidden="true"
             />
           )}
-          {loading ? "Loading…" : "Load older"}
+          {loading ? "Loading…" : error !== null ? "Try again" : "Load older"}
         </button>
       )}
     </section>

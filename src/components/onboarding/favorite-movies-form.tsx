@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, Plus, Search, X } from "lucide-react";
 import { saveFavoriteMovies } from "@/app/onboarding/actions";
 import { MoviePoster } from "@/components/movies/poster";
+import { getJson } from "@/lib/http/get-json";
 import { FAVORITE_MOVIE_LIMIT } from "@/lib/onboarding/steps";
 import type { MovieSearch } from "@/lib/movies/types";
 
@@ -48,21 +49,12 @@ export function FavoriteMoviesForm({
     const timer = setTimeout(async () => {
       setResults({ state: "loading" });
       try {
-        const response = await fetch(
+        const body = await getJson<MovieSearch>(
           `/api/movies/search?${new URLSearchParams({ q: term })}`,
-          { signal: controller.signal },
+          "Search is unavailable right now.",
+          controller.signal,
         );
-        const body = await response.json();
-        if (!response.ok)
-          throw new Error(
-            typeof body.error === "string"
-              ? body.error
-              : "Search is unavailable right now.",
-          );
-        setResults({
-          state: "done",
-          movies: (body as MovieSearch).movies.slice(0, 8),
-        });
+        setResults({ state: "done", movies: body.movies.slice(0, 8) });
       } catch (error) {
         if (controller.signal.aborted) return;
         setResults({

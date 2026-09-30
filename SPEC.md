@@ -268,4 +268,6 @@ The subsequent database request specifies the concrete names `users`, `movies`, 
 
 - Notifications (September 30): `notifications` rows reference their event (no copied text) and are created by triggers on follows and review comments; the inbox, badge and access re-checks read through database functions.
 
+- Performance (September 30): a forward migration rewrites the per-row access checks in plpgsql and changes how `activity_feed` looks up authors and scores, with no change in who can see what. Search results are shared-cacheable for 5 minutes; viewer-dependent pages and APIs stay private. Section 14's browser scenarios run against a local Supabase (`npm run test:e2e:stack`); README lists which ones still need a manual check.
+
 The migrations implement this database subset, not the complete product. The comment, notification and aggregate/taste features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.

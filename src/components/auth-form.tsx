@@ -174,7 +174,7 @@ export function AuthForm({
             <p>
               New to CodeBox?{" "}
               <Link
-                className="text-accent hover:underline"
+                className="text-accent underline"
                 href={`/auth/sign-up${suffix}`}
               >
                 Create an account
@@ -191,7 +191,7 @@ export function AuthForm({
           <p>
             Already a member?{" "}
             <Link
-              className="text-accent hover:underline"
+              className="text-accent underline"
               href={`/auth/sign-in${suffix}`}
             >
               Sign in

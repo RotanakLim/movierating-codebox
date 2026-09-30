@@ -267,7 +267,9 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
 - Home: Following and Community feeds with cursor pagination and a find-people prompt for new users.
 - In-app inbox: follow, comment and reply notifications with an unread badge, mark read / mark all read, focus and 60-second polling while open, and an access re-check when opened.
 - `/reviews/[id]`: likes; one-level comment threads with spoiler flags, owner edit and delete, and "[deleted]" placeholders; deleting a review removes its likes and discussion.
-- Light and dark themes with no flash, and no horizontal scrolling at 360 px.
+- Light and dark themes with no flash, and no horizontal scrolling at 360 px or at 200% zoom. Pages pass automated axe WCAG 2.2 AA checks in both themes.
+- Recoverable states: TMDB errors with Retry, failed pages that keep what's loaded, expired sessions that keep comment and entry drafts, and conflict detection on entry edits.
+- Search results are cached for 5 minutes on the server and in shared caches. Viewer-dependent pages and API responses stay `private, no-store`.
 
 **Not built yet** (SPEC's social and personalization milestones)
 
@@ -285,7 +287,9 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
 - Not yet checked on the hosted Supabase project:
   - the database functions that write to the `auth` and `storage` schemas (account deletion, avatar policies)
   - email delivery on the deployed origin
-- SPEC section 14's manual checks (keyboard-only flow, 200% zoom, modal focus) haven't been done as a full pass.
+- SPEC section 14's manual checks still need a person: a keyboard-only pass with a screen reader, real 200% browser zoom and email on the deployed origin. The automated parts run in `npm run test:e2e:stack` (see [Verification](#verification)).
+- Comment edits don't detect conflicts: if the same comment is edited in two tabs, the last save wins. Entry edits do detect them.
+- A comment retried after a lost connection can post twice; comments have no idempotency key yet (entries do).
 
 PostCSS is overridden to a patched 8.x release because Next.js 15 pins an older transitive version; retain this override until the framework dependency is patched.
 
@@ -299,9 +303,41 @@ npm run test:db
 npm run build
 npx playwright install chromium
 npm run test:e2e
+npm run test:e2e:stack   # needs `npx supabase start`; see below
 ```
 
 Unit tests cover redirect abuse, session refresh cookies, server-action validation, failed/successful OAuth exchanges, token verification, and unauthenticated password updates with mocked Supabase responses. Browser smoke tests run in an explicitly **unconfigured** environment to verify setup UI, protected-route redirects, mobile layout, and theme persistence. They never use real credentials or send email.
+
+### Browser journeys against a local Supabase
+
+`tests/e2e-stack` runs SPEC section 14's scenarios in a real browser against the local stack. It never touches a hosted project: the runner refuses a non-local Supabase URL, and global setup deletes and recreates only `e2e_*` accounts and movies `990001+`.
+
+```sh
+npx supabase start
+npm run test:e2e:stack            # builds with the local stack's keys, then runs Playwright
+E2E_SKIP_BUILD=1 npm run test:e2e:stack -- recovery   # reuse the build, one file
+```
+
+Set `PW_CHROMIUM_PATH` to use an already installed Chromium, and `E2E_REUSE_SERVER=1` to reuse a server already running on port 3200 (only if it was built against the same local stack). TMDB is left unconfigured on purpose, so movie pages come from the seeded movie cache.
+
+| File                 | What it checks                                                                                                                                                                                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a11y.spec.ts`       | axe (WCAG 2.0–2.2 A/AA) on guest and member pages in light and dark themes; one `main` and a skip link; visible focus; no horizontal scroll at 360 px and at 640 px (a 1280 px window at 200% zoom); reduced motion; phone menu Escape and focus return.        |
+| `journeys.spec.ts`   | Scenarios 1–13, 16 and 17 (see below), including direct PostgREST/RPC requests for the privacy, block and report rules.                                                                                                                                         |
+| `recovery.spec.ts`   | Scenario 15: TMDB 429 and timeout with Retry, a non-JSON error page, empty search, missing posters, a failed next page that keeps loaded items, an expired session that keeps the comment draft, an offline save, a double-clicked Save and a two-tab conflict. |
+| `web-vitals.spec.ts` | LCP < 2.5 s and CLS < 0.1 on warm pages (local production build, no throttling: a regression check, not a field measurement).                                                                                                                                   |
+
+Scenario coverage:
+
+- **Automated in the browser:** 1 (guest draft → sign-up → resume → one save), 2, 3, 4 (one person counts once), 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, the bundle half of 16, and the automatable parts of 17 (axe in both themes, 360 px, 200% zoom reflow, keyboard focus on inline confirmations, spoiler reveal, metadata).
+- **Covered by `npm run test:db` instead:** 4's rewatch, backfill, unknown-date, tie, edit and moderation rules (the browser only checks that one person counts once), the full privacy matrix for 6 including pending followers, mutual friends and admins, and 11's account cleanup retry.
+- **Not built, so not tested:** 14 (taste matching and recommendations).
+- **Manual:**
+  - 16: verification and password-reset email to a non-team address on the deployed origin, and checking hosted logs for secrets.
+  - 17: a full keyboard-only pass through every flow with a screen reader, real browser zoom to 200% (the test emulates it with a narrower viewport), and a visual check of both themes. Automated contrast checks can't judge text over images.
+  - Hosted performance: LCP and CLS on the Vercel deployment with a real TMDB token and posters.
+
+For the database side of performance, see [DATABASE.md → Performance checks](DATABASE.md#performance-checks).
 
 After setting up your real project, manually verify: signup → email confirmation → account; bad password; resend; password reset → change password → fresh login; Google success/cancel; refresh while signed in; sign-out → protected redirect. Test a non-team email to confirm SMTP readiness. Automated mocks cannot establish that a real Google client, SMTP service, or Supabase redirect configuration is correct.
 

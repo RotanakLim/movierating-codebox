@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:stack": "node scripts/e2e-stack.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:db": "node scripts/test-database.mjs",
@@ -31,6 +32,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@electric-sql/pglite": "0.5.8",
     "@eslint/eslintrc": "^3.0.0",
     "@playwright/test": "^1.55.0",

@@ -107,6 +107,9 @@ Files:
       - `my_unread_notification_count()` and `mark_notifications_read(ids | null)`.
       - `open_notification(id)`: marks it read and returns the target only if it's still available. Availability is re-checked each time: the follow is still in that state, and the comment is visible and its review viewable.
     - Rows cascade with their recipient, actor, entry or comment.
+17. `supabase/migrations/20260930001500_feed_performance.sql` (no behavior change):
+    - `codebox_private.can_view_profile`, `can_view_activity` and `comment_state` are plpgsql instead of SQL. They run once per row in RLS policies and `review_threads`; as non-inlinable SQL functions they were re-planned on every call.
+    - `activity_feed` looks up the author (`user_identities`) and score (`public_reviews`) with `LATERAL (…) OFFSET 0` subqueries. A join key can't be pushed into a `security_barrier` view, so the old joins built the whole of `public_reviews` for every page. Same columns, still `security_invoker`.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -272,6 +275,28 @@ For a Community feed, include only `rated`/`reviewed` events. For Following, fil
    - Reports stay but lose the person's ID and details.
 2. **Then, with the service role** (`src/lib/supabase/account-cleanup.ts`): delete every file in `avatars/<id>/`, then the auth user (404 counts as done). Record each attempt, with a short non-identifying error on failure.
 3. **Retries**: unfinished rows are retried, least-attempted first, by `GET /api/cron/account-deletions` (Vercel Cron with `CRON_SECRET`). Each step is idempotent, and nothing in the retry path can recreate the profile. The auth signup trigger only runs on insert, and clients have no INSERT grant on `users`. Completed rows keep only the user ID, timestamps and attempt count.
+
+## Performance checks
+
+`supabase/perf/seed.sql` loads a large local dataset (5,000 accounts, about 100,000 entries, 250,000 follows, busy discussions). `supabase/perf/explain.sql` then runs the app's RLS-heavy reads as one of those accounts and prints `EXPLAIN ANALYZE` plans. **Local stack only**: the seed creates thousands of fake accounts.
+
+```sh
+docker exec -i supabase_db_movierating-codebox psql -U postgres < supabase/perf/seed.sql
+docker exec -i supabase_db_movierating-codebox psql -U postgres < supabase/perf/explain.sql
+```
+
+Measured on that data (local Postgres 17, warm cache), before and after migration 17:
+
+| Query (first page unless noted)          | Before     | After     | Plan                                                    |
+| ---------------------------------------- | ---------- | --------- | ------------------------------------------------------- |
+| Following feed                           | 2,109 ms   | 47 ms     | `follows_outbound_status`, then `activity_actor_recent` |
+| Community feed                           | 1,423 ms   | 2 ms      | `activity_public_recent`, stops after 21 rows           |
+| Community feed, deep cursor (400 days)   | 1,660 ms   | 2 ms      | same index, keyset condition                            |
+| Movie reviews list (busiest movie)       | 1 ms       | 1 ms      | `entries_movie_recent`                                  |
+| Review threads (~400 comments)           | 58 ms      | 11 ms     | every comment on the review gets a state, then pages    |
+| Inbox page / unread count (2,840 unread) | 12 / 23 ms | 7 / 22 ms | `notifications_inbox` / `notifications_unread`          |
+
+The following feed still grows with how much the people you follow have posted: it collects their activity through `activity_actor_recent` and sorts it. Review threads compute every comment's state before paging, so they grow with the size of the discussion.
 
 ## Tests and scope
 

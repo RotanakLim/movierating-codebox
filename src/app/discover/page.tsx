@@ -10,9 +10,10 @@ export default function DiscoverPage() {
   return (
     <Suspense
       fallback={
-        <p className="py-16" role="status">
-          Loading movie discovery…
-        </p>
+        // Hold a screen's height so the footer doesn't jump when search mounts (CLS).
+        <div className="min-h-screen py-16">
+          <p role="status">Loading movie discovery…</p>
+        </div>
       }
     >
       <MovieSearchPage />

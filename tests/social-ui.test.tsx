@@ -144,6 +144,7 @@ describe("feed cards", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/feed?tab=community&cursor=abc",
+      expect.anything(),
     );
     expect(screen.getAllByRole("article")).toHaveLength(3);
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();

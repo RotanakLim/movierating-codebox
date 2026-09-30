@@ -315,6 +315,7 @@ describe("<Discussion>", () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/reviews/r1/comments/replies?thread=a&cursor=rc",
+      expect.anything(),
     );
     expect(document.body.textContent).toContain("Text c");
     await act(async () =>
@@ -324,6 +325,7 @@ describe("<Discussion>", () => {
     );
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/reviews/r1/comments?cursor=tc",
+      expect.anything(),
     );
     expect(document.body.textContent).toContain("Text z");
   });

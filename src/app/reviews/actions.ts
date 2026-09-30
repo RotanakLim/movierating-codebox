@@ -114,7 +114,12 @@ export async function deleteComment(input: unknown): Promise<ActionResult> {
   const parsed = z.object({ commentId: id }).strict().safeParse(input);
   if (!parsed.success) return { ok: false, error: "Choose a comment." };
   const user = await getUser();
-  if (!user) return { ok: false, error: "Sign in to continue." };
+  if (!user)
+    return {
+      ok: false,
+      error: "Sign in to continue.",
+      code: "SIGN_IN_REQUIRED",
+    };
   const supabase = await createClient();
   const { error } = await supabase.rpc("delete_review_comment", {
     target: parsed.data.commentId,

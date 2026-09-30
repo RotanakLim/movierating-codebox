@@ -273,7 +273,7 @@ export function EntryComposer({
                     type="button"
                     onClick={() => open("rate", entry)}
                     disabled={refreshing}
-                    className="text-xs font-semibold text-accent hover:underline"
+                    className="tap-target text-xs font-semibold text-accent hover:underline"
                     aria-label={`Edit your entry, ${describeEntry(entry)}`}
                   >
                     Edit

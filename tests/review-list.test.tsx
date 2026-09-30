@@ -95,7 +95,10 @@ describe("<ReviewList>", () => {
         screen.getByRole("button", { name: "Load more reviews" }),
       ),
     );
-    expect(fetchMock).toHaveBeenCalledWith("/api/movies/10/reviews?cursor=abc");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/movies/10/reviews?cursor=abc",
+      expect.anything(),
+    );
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
     expect(
       screen.queryByRole("button", { name: "Load more reviews" }),
@@ -114,7 +117,10 @@ describe("<ReviewList>", () => {
     await act(async () =>
       fireEvent.click(screen.getByLabelText("Written reviews only")),
     );
-    expect(fetchMock).toHaveBeenCalledWith("/api/movies/10/reviews?written=1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/movies/10/reviews?written=1",
+      expect.anything(),
+    );
     expect(screen.getByText("Plain review 9")).toBeTruthy();
   });
   it("says so when there are no reviews", () => {

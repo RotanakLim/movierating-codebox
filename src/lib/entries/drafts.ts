@@ -3,6 +3,8 @@ import type { EntryFields } from "./types";
 // Unsent entry drafts in sessionStorage, scoped to one user (or the guest) and one
 // movie. Drafts are restored into the composer but never submitted automatically.
 const PREFIX = "codebox:entry-draft:v1:";
+// Unsent comments and replies, scoped to the account and review in the same way.
+const COMMENT_PREFIX = "codebox:comment-draft:v1:";
 
 export type Draft = {
   /** "rate" edits targetId (or creates when null); "log" always creates. */
@@ -105,14 +107,51 @@ export function claimGuestDraft(
   return guest;
 }
 
-/** Remove every entry draft, e.g. on sign-out. */
+export type CommentDraft = { body: string; spoiler: boolean };
+
+/** `slot` is "new" for a top-level comment or the thread id for a reply. */
+export function commentDraftKey(owner: string, reviewId: string, slot: string) {
+  return `${COMMENT_PREFIX}${owner}:${reviewId}:${slot}`;
+}
+
+export function loadCommentDraft(key: string, storage = store()) {
+  try {
+    const raw = storage?.getItem(key);
+    const value: unknown = raw ? JSON.parse(raw) : null;
+    const draft = value as Partial<CommentDraft> | null;
+    return draft &&
+      typeof draft.body === "string" &&
+      typeof draft.spoiler === "boolean"
+      ? { body: draft.body, spoiler: draft.spoiler }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Saves a non-empty draft; an empty one is removed. */
+export function saveCommentDraft(
+  key: string,
+  draft: CommentDraft,
+  storage = store(),
+) {
+  try {
+    if (draft.body.trim()) storage?.setItem(key, JSON.stringify(draft));
+    else storage?.removeItem(key);
+  } catch {
+    /* Quota or blocked storage: drafts are a convenience only. */
+  }
+}
+
+/** Remove every entry and comment draft, e.g. on sign-out. */
 export function clearAllDrafts(storage = store()) {
   try {
     if (!storage) return;
     const keys: string[] = [];
     for (let index = 0; index < storage.length; index++) {
       const key = storage.key(index);
-      if (key?.startsWith(PREFIX)) keys.push(key);
+      if (key?.startsWith(PREFIX) || key?.startsWith(COMMENT_PREFIX))
+        keys.push(key);
     }
     keys.forEach((key) => storage.removeItem(key));
   } catch {

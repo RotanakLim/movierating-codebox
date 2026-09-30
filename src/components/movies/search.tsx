@@ -10,6 +10,7 @@ import {
   ArrowDown,
   Film,
 } from "lucide-react";
+import { getJson } from "@/lib/http/get-json";
 import { MOVIE_GENRES, type MovieSearch, type Movie } from "@/lib/movies/types";
 import { MoviePoster } from "./poster";
 
@@ -63,15 +64,11 @@ export function MovieSearchPage() {
       if (query.trim()) search.set("q", query.trim());
       if (genre) search.set("genre", genre);
       if (year) search.set("year", year);
-      const response = await fetch(`/api/movies/search?${search}`, { signal });
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(
-          typeof body.error === "string"
-            ? body.error
-            : "Movie search is unavailable. Please try again.",
-        );
-      return body as MovieSearch;
+      return getJson<MovieSearch>(
+        `/api/movies/search?${search}`,
+        "Movie search is unavailable. Please try again.",
+        signal,
+      );
     },
     [query, genre, year],
   );

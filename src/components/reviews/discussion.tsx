@@ -1,5 +1,5 @@
 "use client";
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import Link from "next/link";
 import { LoaderCircle } from "lucide-react";
 import { Avatar } from "@/components/avatar";
@@ -9,6 +9,13 @@ import {
   receiptMessage,
 } from "@/components/safety/safety-controls";
 import { addComment, deleteComment, editComment } from "@/app/reviews/actions";
+import type { ActionFailure } from "@/lib/auth/contributor";
+import {
+  commentDraftKey,
+  loadCommentDraft,
+  saveCommentDraft,
+} from "@/lib/entries/drafts";
+import { getJson } from "@/lib/http/get-json";
 import { avatarUrl } from "@/lib/profiles/avatar-url";
 import {
   COMMENT_MAX,
@@ -33,12 +40,18 @@ const PLACEHOLDER: Record<string, string> = {
   blocked: "[hidden]",
 };
 
-/** Text box with a spoiler flag and character count, for new, reply and edit. */
+/**
+ * Text box with a spoiler flag and character count, for new, reply and edit. New
+ * comments and replies keep an unsent draft in session storage (draftKey), so an
+ * expired session or a navigation doesn't lose it; it's never sent automatically.
+ */
 function CommentForm({
   initialBody = "",
   initialSpoiler = false,
   submitLabel,
   replyingTo,
+  draftKey,
+  signInHref,
   onSubmit,
   onCancel,
 }: {
@@ -46,15 +59,31 @@ function CommentForm({
   initialSpoiler?: boolean;
   submitLabel: string;
   replyingTo?: string | null;
-  onSubmit: (body: string, spoiler: boolean) => Promise<string | null>;
+  draftKey?: string;
+  signInHref?: string;
+  onSubmit: (body: string, spoiler: boolean) => Promise<ActionFailure | null>;
   onCancel?: () => void;
 }) {
   const id = useId();
   const [body, setBody] = useState(initialBody);
   const [spoiler, setSpoiler] = useState(initialSpoiler);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ActionFailure | null>(null);
   const [pending, startTransition] = useTransition();
   const empty = !body.trim();
+
+  // Restore after mount (session storage isn't available during the server render).
+  useEffect(() => {
+    const draft = draftKey ? loadCommentDraft(draftKey) : null;
+    if (!draft) return;
+    setBody(draft.body);
+    setSpoiler(draft.spoiler);
+  }, [draftKey]);
+  function change(next: { body?: string; spoiler?: boolean }) {
+    const draft = { body: next.body ?? body, spoiler: next.spoiler ?? spoiler };
+    setBody(draft.body);
+    setSpoiler(draft.spoiler);
+    if (draftKey) saveCommentDraft(draftKey, draft);
+  }
   return (
     <form
       className="mt-3 space-y-2"
@@ -64,11 +93,13 @@ function CommentForm({
         setError(null);
         startTransition(async () => {
           const problem = await onSubmit(body, spoiler).catch(
-            () => "That didn't work. Please try again.",
+            (): ActionFailure => ({
+              ok: false,
+              error: "That didn't work. Please try again.",
+            }),
           );
           if (problem) return setError(problem);
-          setBody("");
-          setSpoiler(false);
+          change({ body: "", spoiler: false });
         });
       }}
     >
@@ -81,7 +112,7 @@ function CommentForm({
       <textarea
         id={`${id}-body`}
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        onChange={(event) => change({ body: event.target.value })}
         maxLength={COMMENT_MAX}
         rows={3}
         placeholder="Plain text, up to 2,000 characters"
@@ -92,7 +123,7 @@ function CommentForm({
           <input
             type="checkbox"
             checked={spoiler}
-            onChange={(event) => setSpoiler(event.target.checked)}
+            onChange={(event) => change({ spoiler: event.target.checked })}
             className="h-4 min-h-0 w-4"
           />
           Contains spoilers
@@ -103,7 +134,16 @@ function CommentForm({
       </div>
       {error && (
         <p role="alert" className="text-sm text-muted">
-          {error}
+          {error.error}
+          {error.code === "SIGN_IN_REQUIRED" && signInHref && (
+            <>
+              {" "}
+              <Link href={signInHref} className="text-accent underline">
+                Sign in
+              </Link>{" "}
+              and your text will be here when you come back.
+            </>
+          )}
         </p>
       )}
       <div className="flex gap-3">
@@ -186,7 +226,7 @@ function CommentItem({
               body: text,
               spoiler,
             });
-            if (!result.ok) return result.error;
+            if (!result.ok) return result;
             onEdit(comment, text.trim(), spoiler);
             setPanel(null);
             return null;
@@ -298,14 +338,6 @@ function CommentItem({
       )}
     </div>
   );
-}
-
-async function getJson<T>(url: string, fallback: string): Promise<T> {
-  const response = await fetch(url);
-  const body = await response.json();
-  if (!response.ok)
-    throw new Error(typeof body.error === "string" ? body.error : fallback);
-  return body as T;
 }
 
 /**
@@ -466,6 +498,8 @@ export function Discussion({
       {viewer ? (
         <CommentForm
           submitLabel="Post comment"
+          draftKey={commentDraftKey(viewer.username, reviewId, "new")}
+          signInHref={signInHref}
           onSubmit={async (body, spoiler) => {
             const result = await addComment({
               reviewId,
@@ -473,7 +507,7 @@ export function Discussion({
               spoiler,
               replyTo: null,
             });
-            if (!result.ok) return result.error;
+            if (!result.ok) return result;
             if (nextCursor)
               setNotice(
                 "Your comment was posted at the end of the discussion.",
@@ -577,6 +611,12 @@ export function Discussion({
                   <div className="mt-3 border-l-2 border-accent pl-4">
                     <CommentForm
                       submitLabel="Post reply"
+                      draftKey={commentDraftKey(
+                        viewer.username,
+                        reviewId,
+                        thread.id,
+                      )}
+                      signInHref={signInHref}
                       replyingTo={
                         replying.to.id === thread.id
                           ? null
@@ -591,7 +631,7 @@ export function Discussion({
                           spoiler,
                           replyTo: to.id,
                         });
-                        if (!result.ok) return result.error;
+                        if (!result.ok) return result;
                         const replyTo =
                           to.id !== thread.id &&
                           to.author &&
