@@ -43,20 +43,20 @@ Each migration is transactional and intended to run once through migration track
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `users`      | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                  |
 | `movies`     | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                           |
-| `rankings`   | An editable watch/review entry: user_id, movie_id, score, note, watched_date; plus optional half-star opinion, spoiler flag, watched flag, timezone, version, timestamps. |
+| `rankings`   | An editable watch/review entry: user_id, movie_id, optional star rating, note, watched_date; plus spoiler flag, watched flag, timezone, version, timestamps.              |
 | `follows`    | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship. |
 | `lists`      | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                       |
 | `list_items` | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                 |
 | `activity`   | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                               |
 | `blocks`     | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                        |
 
-### Rankings, repeat watches, and stars
+### Entries, repeat watches, and stars
 
-The requested `9.1` example is a decimal **ranking score from 0.0 to 10.0**. It is independent of the original SPEC's optional 1–5 half-star opinion (`star_half_units` 2–10). No arbitrary algorithm converts between the two. Numeric(3,1) stores one decimal place.
+The only rating is **1–5 stars in half-star steps**, stored as the integer `star_half_units` 2–10 (e.g. 9 = 4.5 stars). NULL means unrated. There are no decimal scores, buckets, comparisons, or manual ranking positions. Migration `20260930000200_remove_decimal_score.sql` removed the earlier decimal score, converting it to `round(score)` half-units (clamped to 2–10) only where an entry had no star rating.
 
 A ranking row represents a diary/review entry, allowing repeat watches of the same movie. Do not add a unique `(user_id, movie_id)` constraint: that would discard the SPEC's history. Custom lists are separately stored in `lists`/`list_items`; visitors can independently sort a profile collection.
 
-`current_rankings` selects one **scored** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a score; deleting the current entry reveals the previous eligible one. A scored entry has a decimal score and/or half-star opinion; if the latest scored entry omits one scale, that scale is NULL rather than carried forward from a different entry. `public_current_ratings` exposes just the public scoring fields with the same precedence, without dates.
+`current_rankings` selects one **rated** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a rating; deleting the current entry reveals the previous eligible one. `public_current_ratings` exposes just the public rating fields with the same precedence, without dates.
 
 `watched_date = NULL` means unknown for a watched entry, and is required for an unwatched entry. The UI should supply local today and its IANA `watched_timezone`; the database checks that the date is not in the future in that timezone. SQL defaults to unknown date and UTC when these values are omitted. Watched-only entries and note-only entries are allowed; an entirely empty unwatched entry is rejected.
 
@@ -108,8 +108,7 @@ const { data, error } = await supabase
   .insert({
     id: entryId,
     movie_id: 693134, // Must already exist in the minimal cache.
-    score: 9.1,
-    star_half_units: 8, // Optional, separate 4-star opinion.
+    star_half_units: 8, // Optional: 4 stars. NULL = unrated.
     note: "Beautiful film.",
     watched: true,
     watched_date: "2026-09-29", // UI supplies local today, or NULL for unknown.
@@ -155,7 +154,7 @@ await supabase
   .limit(20);
 ```
 
-For a Community feed, include only `ranked`/`reviewed` events. For Following, filter actors by the viewer's accepted outbound follows; RLS still rechecks each event. Cursor pagination should use `(created_at, id)`; relevant indexes are provided. Editing an entry updates its displayed score without adding a second event or bumping publication time.
+For a Community feed, include only `ranked`/`reviewed` events. For Following, filter actors by the viewer's accepted outbound follows; RLS still rechecks each event. Cursor pagination should use `(created_at, id)`; relevant indexes are provided. Editing an entry updates its displayed rating without adding a second event or bumping publication time.
 
 `request_follow` accepts public targets immediately and creates pending requests for restricted targets. Only the recipient can approve or decline. A decline has a 24-hour retry cooldown; removing or blocking/unblocking a declined relationship does not erase it. Follow and block operations serialize by user pair to avoid approval/block races. Blocking removes pending and accepted follows in both directions; unblocking does not restore them. Public content remains readable when signed out.
 
@@ -167,6 +166,6 @@ npm run test:db
 
 The test runner applies all migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
 
-Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, default watchlists, list ownership, history selection, feed updates/deletion, and Auth cascade cleanup. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
+Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained star ratings/dates, default watchlists, list ownership, history selection, feed updates/deletion, and Auth cascade cleanup. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
 
 This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Avatar bucket policies and image processing, username onboarding UI, moderation/suspension, comments/likes, notifications, taste calculations, account-deletion orchestration remain subsequent implementation work. Do not treat these core migrations as completion of every feature in SPEC.md.
