@@ -39,24 +39,24 @@ Each migration is transactional and intended to run once through migration track
 
 ## Schema decisions
 
-| Table        | Meaning                                                                                                                                                                                     |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`      | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                                    |
-| `movies`     | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                                             |
-| `rankings`   | An editable watch/review entry: user_id, movie_id, bucket, position, score, note, watched_date; plus optional half-star opinion, spoiler flag, watched flag, timezone, version, timestamps. |
-| `follows`    | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship.                   |
-| `lists`      | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                                         |
-| `list_items` | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                                   |
-| `activity`   | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                                                 |
-| `blocks`     | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                                          |
+| Table        | Meaning                                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`      | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                  |
+| `movies`     | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                           |
+| `rankings`   | An editable watch/review entry: user_id, movie_id, score, note, watched_date; plus optional half-star opinion, spoiler flag, watched flag, timezone, version, timestamps. |
+| `follows`    | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship. |
+| `lists`      | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                       |
+| `list_items` | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                 |
+| `activity`   | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                               |
+| `blocks`     | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                        |
 
 ### Rankings, repeat watches, and stars
 
-The requested `9.1` example is a decimal **ranking score from 0.0 to 10.0**. It is independent of the original SPEC's optional 1–5 half-star opinion (`star_half_units` 2–10). No arbitrary algorithm converts between the two. A decimal score requires a `liked`, `fine`, or `disliked` bucket; bucket and position are absent for entries without a decimal score. Numeric(3,1) stores one decimal place. No score thresholds are imposed on buckets: the future ranking workflow will choose them.
+The requested `9.1` example is a decimal **ranking score from 0.0 to 10.0**. It is independent of the original SPEC's optional 1–5 half-star opinion (`star_half_units` 2–10). No arbitrary algorithm converts between the two. Numeric(3,1) stores one decimal place.
 
-A ranking row represents a diary/review entry, allowing repeat watches of the same movie. Do not add a unique `(user_id, movie_id)` constraint: that would discard the SPEC's history. `position` is an optional positive placement snapshot on this entry, not a unique global movie order or a user-created custom ranked list. Custom lists are separately stored in `lists`/`list_items`; visitors can independently sort a profile collection. This schema does not implement a pairwise ranking algorithm or automatic reordering.
+A ranking row represents a diary/review entry, allowing repeat watches of the same movie. Do not add a unique `(user_id, movie_id)` constraint: that would discard the SPEC's history. Custom lists are separately stored in `lists`/`list_items`; visitors can independently sort a profile collection.
 
-`current_rankings` selects one **scored** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a score; deleting the current entry reveals the previous eligible one. A scored entry has a decimal score and/or half-star opinion; if the latest scored entry omits one scale, that scale is NULL rather than carried forward from a different entry. `public_current_ratings` exposes just the public scoring fields with the same precedence, without dates or positions.
+`current_rankings` selects one **scored** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a score; deleting the current entry reveals the previous eligible one. A scored entry has a decimal score and/or half-star opinion; if the latest scored entry omits one scale, that scale is NULL rather than carried forward from a different entry. `public_current_ratings` exposes just the public scoring fields with the same precedence, without dates.
 
 `watched_date = NULL` means unknown for a watched entry, and is required for an unwatched entry. The UI should supply local today and its IANA `watched_timezone`; the database checks that the date is not in the future in that timezone. SQL defaults to unknown date and UTC when these values are omitted. Watched-only entries and note-only entries are allowed; an entirely empty unwatched entry is rejected.
 
@@ -108,8 +108,6 @@ const { data, error } = await supabase
   .insert({
     id: entryId,
     movie_id: 693134, // Must already exist in the minimal cache.
-    bucket: "liked",
-    position: 1,
     score: 9.1,
     star_half_units: 8, // Optional, separate 4-star opinion.
     note: "Beautiful film.",
@@ -167,7 +165,7 @@ For a Community feed, include only `ranked`/`reviewed` events. For Following, fi
 npm run test:db
 ```
 
-The test runner applies all three migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
+The test runner applies all migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
 
 Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, default watchlists, list ownership, history selection, feed updates/deletion, and Auth cascade cleanup. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
 

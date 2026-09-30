@@ -36,6 +36,8 @@ select codebox_test.ok((select count(*) = 8 from pg_class c join pg_namespace n 
 select codebox_test.ok(not has_function_privilege('anon', 'public.request_follow(uuid)', 'EXECUTE'), 'guest has no follow RPC grant');
 select codebox_test.ok(not has_function_privilege('authenticated', 'codebox_private.handle_auth_signup()', 'EXECUTE'), 'clients cannot invoke privileged trigger function');
 select codebox_test.ok((select count(*) = 5 from information_schema.columns where table_schema = 'public' and table_name = 'movies'), 'TMDB cache is minimal');
+select codebox_test.ok((select count(*) = 0 from information_schema.columns where table_schema = 'public' and table_name = 'rankings' and column_name in ('bucket', 'position')), 'comparison bucket/position columns removed');
+select codebox_test.ok(to_regtype('public.ranking_bucket') is null, 'ranking_bucket enum removed');
 
 insert into auth.users(id, email_confirmed_at) values
  ('00000000-0000-0000-0000-000000000001', now()),
@@ -54,8 +56,8 @@ select codebox_test.denied($q$update public.users set username = 'renamed' where
 select codebox_test.denied($q$update public.users set profile = '{"role":"admin"}' where id = auth.uid()$q$, '23514', 'profile disallows arbitrary privileged fields');
 select codebox_test.denied($q$update public.users set avatar = 'javascript:alert(1)' where id = auth.uid()$q$, '23514', 'avatar rejects executable URLs');
 insert into public.list_items(list_id, movie_id) select id, 693134 from public.lists where user_id = auth.uid() and kind = 'watchlist';
-insert into public.rankings(id, movie_id, bucket, position, score, star_half_units, note, watched, watched_date)
- values ('10000000-0000-0000-0000-000000000001', 693134, 'liked', 1, 9.1, 8, 'Beautiful film', true, '2026-01-10');
+insert into public.rankings(id, movie_id, score, star_half_units, note, watched, watched_date)
+ values ('10000000-0000-0000-0000-000000000001', 693134, 9.1, 8, 'Beautiful film', true, '2026-01-10');
 select codebox_test.ok((select count(*) = 0 from public.list_items i join public.lists l on l.id = i.list_id where l.user_id = auth.uid()), 'watched save removes watchlist item atomically');
 select codebox_test.ok((select count(*) = 1 from public.activity where ranking_id = '10000000-0000-0000-0000-000000000001'), 'ranking creates exactly one feed row');
 select codebox_test.ok((select summary = 'rotanak ranked Dune: Part Two at 9.1' from public.activity_feed where ranking_id = '10000000-0000-0000-0000-000000000001'), 'feed renders structured ranking summary');
@@ -65,10 +67,8 @@ select codebox_test.ok((select count(*) = 1 from public.activity where ranking_i
 select codebox_test.ok((select summary like '%9.2' from public.activity_feed where ranking_id = '10000000-0000-0000-0000-000000000001'), 'feed score follows edits');
 select codebox_test.ok((select a.created_at = r.created_at from public.activity a join public.rankings r on r.id = a.ranking_id where r.id = '10000000-0000-0000-0000-000000000001'), 'editing does not bump feed publication time');
 select codebox_test.denied($q$update public.rankings set user_id = '00000000-0000-0000-0000-000000000002'$q$, '42501', 'owner cannot transfer ranking ownership');
-select codebox_test.denied($q$insert into public.rankings(movie_id, user_id, score, bucket) values (550, '00000000-0000-0000-0000-000000000002', 8.0, 'liked')$q$, '42501', 'cannot insert a ranking for someone else');
-select codebox_test.denied($q$insert into public.rankings(movie_id, score, bucket) values (550, 10.1, 'liked')$q$, '23514', 'score above ten rejected');
-select codebox_test.denied($q$insert into public.rankings(movie_id, score, bucket) values (550, 3, 'bad')$q$, '22P02', 'invalid bucket rejected');
-select codebox_test.denied($q$insert into public.rankings(movie_id, score, bucket, position) values (550, 3, 'fine', 0)$q$, '23514', 'nonpositive position rejected');
+select codebox_test.denied($q$insert into public.rankings(movie_id, user_id, score) values (550, '00000000-0000-0000-0000-000000000002', 8.0)$q$, '42501', 'cannot insert a ranking for someone else');
+select codebox_test.denied($q$insert into public.rankings(movie_id, score) values (550, 10.1)$q$, '23514', 'score above ten rejected');
 select codebox_test.denied($q$insert into public.rankings(movie_id, watched, note) values (550, false, '   ')$q$, '23514', 'empty unwatched unrated entry rejected including NULL check semantics');
 select codebox_test.denied($q$insert into public.rankings(movie_id, watched_date) values (550, current_date + 10)$q$, '23514', 'future watch dates rejected');
 select codebox_test.denied($q$insert into public.rankings(movie_id, watched, watched_date) values (550, false, current_date)$q$, '23514', 'unwatched entry cannot have watch date');
@@ -82,15 +82,15 @@ select codebox_test.denied($q$delete from public.activity$q$, '42501', 'clients 
 
 -- Watchlist remains intact for a rating without a watch.
 insert into public.list_items(list_id, movie_id) select id, 329865 from public.lists where user_id = auth.uid() and kind = 'watchlist';
-insert into public.rankings(id,movie_id,score,bucket,watched) values ('10000000-0000-0000-0000-000000000002',329865,8.5,'liked',false);
+insert into public.rankings(id,movie_id,score,watched) values ('10000000-0000-0000-0000-000000000002',329865,8.5,false);
 select codebox_test.ok((select count(*) = 1 from public.list_items where movie_id = 329865), 'unwatched rating keeps watchlist item');
 insert into public.rankings(id,movie_id,watched) values ('10000000-0000-0000-0000-000000000003',550,true);
 
 -- Rewatch and old backfill; current opinion is date-based, not latest submission.
-insert into public.rankings(id,movie_id,score,bucket,watched_date) values
- ('10000000-0000-0000-0000-000000000004',693134,7.0,'fine','2026-06-01'),
- ('10000000-0000-0000-0000-000000000005',693134,2.0,'disliked','2020-01-01'),
- ('10000000-0000-0000-0000-000000000006',693134,10.0,'liked',null);
+insert into public.rankings(id,movie_id,score,watched_date) values
+ ('10000000-0000-0000-0000-000000000004',693134,7.0,'2026-06-01'),
+ ('10000000-0000-0000-0000-000000000005',693134,2.0,'2020-01-01'),
+ ('10000000-0000-0000-0000-000000000006',693134,10.0,null);
 select codebox_test.ok((select score = 7 from public.current_rankings where user_id = auth.uid() and movie_id = 693134), 'dated latest opinion beats historical backfill and undated rating');
 select codebox_test.ok((select count(*) = 1 from public.current_rankings where user_id = auth.uid() and movie_id = 693134), 'current projection contributes once per movie');
 insert into public.rankings(id,movie_id,watched_date) values ('10000000-0000-0000-0000-000000000007',693134,'2026-07-01');
@@ -121,7 +121,7 @@ select codebox_test.denied($q$select public.request_follow(auth.uid())$q$, '2202
 -- Unverified users may choose usernames but cannot publish.
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', false);
 update public.users set username = 'unverified' where id = auth.uid();
-select codebox_test.denied($q$insert into public.rankings(movie_id,score,bucket) values (550,8,'liked')$q$, '42501', 'unverified user cannot publish rankings');
+select codebox_test.denied($q$insert into public.rankings(movie_id,score) values (550,8)$q$, '42501', 'unverified user cannot publish rankings');
 select codebox_test.denied($q$select public.request_follow('00000000-0000-0000-0000-000000000001')$q$, '42501', 'unverified user cannot follow');
 
 -- Followers-only and friends-only privacy, with approve/decline RPCs.
@@ -180,7 +180,7 @@ select codebox_test.ok((select count(*) = 0 from public.current_rankings where u
 select codebox_test.denied('select watched from public.public_reviews', '42703', 'public reviews do not expose watched status');
 select codebox_test.denied('select profile from public.user_identities', '42703', 'identity projection contains no private profile');
 select codebox_test.denied('select note from public.activity_feed', '42703', 'feed never exposes spoiler text');
-select codebox_test.denied($q$insert into public.rankings(movie_id,score,bucket) values (550,8,'liked')$q$, '42501', 'guest cannot create ranking');
+select codebox_test.denied($q$insert into public.rankings(movie_id,score) values (550,8)$q$, '42501', 'guest cannot create ranking');
 select codebox_test.denied('delete from public.public_reviews', '42501', 'public projection is not writable');
 
 -- Bidirectional blocking also filters intentional public projections.
