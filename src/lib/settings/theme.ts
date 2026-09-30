@@ -1,6 +1,8 @@
 export const THEMES = ["system", "light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 export const THEME_KEY = "codebox-theme";
+/** Window event fired with the new theme whenever it is applied. */
+export const THEME_CHANGED = "codebox:theme-changed";
 
 export function isTheme(value: unknown): value is Theme {
   return THEMES.includes(value as Theme);
@@ -32,4 +34,5 @@ export function applyTheme(theme: Theme) {
     theme === "dark" ||
     (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
+  window.dispatchEvent(new CustomEvent(THEME_CHANGED, { detail: theme }));
 }

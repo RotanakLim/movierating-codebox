@@ -11,9 +11,14 @@ const mocks = vi.hoisted(() => ({
   signOut: vi.fn(),
   cleanup: vi.fn(),
   preferences: vi.fn(),
+  limit: vi.fn(),
+  after: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("next/server", () => ({ after: mocks.after }));
+vi.mock("@/lib/movies/limits", () => ({ limitMovieRequest: mocks.limit }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -50,6 +55,7 @@ import {
   saveProfile,
   saveTheme,
 } from "@/app/settings/actions";
+import { MovieError } from "@/lib/movies/errors";
 
 const USER = { id: "user-1", email: "fan@codebox.test" };
 const now = () => Math.floor(Date.now() / 1000);
@@ -146,10 +152,33 @@ describe("reauthenticate", () => {
       (await reauthenticate({ password: "x", email: "other@x.test" })).ok,
     ).toBe(false);
   });
+
+  it("limits password re-checks per account before calling Auth", async () => {
+    expect(mocks.limit).not.toHaveBeenCalled();
+    mocks.limit.mockRejectedValue(new MovieError(429, "slow down"));
+    expect(await reauthenticate({ password: "guess" })).toEqual({
+      ok: false,
+      error: "Too many attempts. Please wait 15 minutes and try again.",
+    });
+    expect(mocks.limit).toHaveBeenCalledWith(
+      "reauth",
+      expect.any(Headers),
+      "user-1",
+    );
+    expect(mocks.signIn).not.toHaveBeenCalled();
+    mocks.limit.mockRejectedValue(new MovieError(503, "not configured"));
+    expect((await reauthenticate({ password: "guess" })).ok).toBe(false);
+    expect(mocks.signIn).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleteAccount", () => {
-  it("requires the username typed exactly", async () => {
+  it("requires a username and the username typed exactly", async () => {
+    mocks.username.mockResolvedValueOnce(null);
+    expect(await deleteAccount({ confirmation: "delete" })).toEqual({
+      ok: false,
+      error: "Choose a username to continue.",
+    });
     expect(await deleteAccount({ confirmation: "someone_else" })).toEqual({
       ok: false,
       error: "Type your username to confirm.",
@@ -168,26 +197,35 @@ describe("deleteAccount", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
-  it("disables the account, signs out, cleans up and leaves", async () => {
+  it("disables the account, signs out, leaves, and cleans up after responding", async () => {
     await expect(deleteAccount({ confirmation: " Film_Fan " })).rejects.toThrow(
       "REDIRECT:/account/deleted",
     );
-    expect(mocks.rpc).toHaveBeenCalledWith("request_account_deletion");
+    // The typed text goes to the database, which checks it again.
+    expect(mocks.rpc).toHaveBeenCalledWith("request_account_deletion", {
+      confirmation: " Film_Fan ",
+    });
     expect(mocks.signOut).toHaveBeenCalledWith({ scope: "local" });
+    expect(mocks.cleanup).not.toHaveBeenCalled();
+    await mocks.after.mock.calls[0][0]();
     expect(mocks.cleanup).toHaveBeenCalledWith("user-1");
   });
 
-  it("still finishes when immediate cleanup fails (the queue retries it)", async () => {
-    mocks.cleanup.mockResolvedValue(false);
-    await expect(deleteAccount({ confirmation: "film_fan" })).rejects.toThrow(
-      "REDIRECT:/account/deleted",
-    );
-  });
-
-  it("stops if the database refuses the request", async () => {
+  it("maps database refusals to clear messages and cleans up nothing", async () => {
     mocks.rpc.mockResolvedValue({ error: { code: "42501" } });
+    expect(await deleteAccount({ confirmation: "film_fan" })).toEqual({
+      ok: false,
+      error: "For your security, sign in again before deleting your account.",
+    });
+    mocks.rpc.mockResolvedValue({ error: { code: "22023" } });
+    expect(await deleteAccount({ confirmation: "film_fan" })).toEqual({
+      ok: false,
+      error: "Type your username to confirm.",
+    });
+    mocks.rpc.mockResolvedValue({ error: { code: "XX000" } });
     expect((await deleteAccount({ confirmation: "film_fan" })).ok).toBe(false);
-    expect(mocks.cleanup).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
     mocks.user.mockResolvedValue(null);
     expect((await deleteAccount({ confirmation: "film_fan" })).ok).toBe(false);
   });

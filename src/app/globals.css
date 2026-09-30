@@ -54,6 +54,9 @@ button:disabled {
   .button-secondary {
     @apply inline-flex min-h-12 items-center justify-center gap-3 rounded-xl border border-line bg-surface px-5 py-3 text-sm font-semibold hover:border-accent;
   }
+  .button-danger {
+    @apply inline-flex min-h-12 items-center justify-center gap-3 rounded-xl bg-red-700 px-5 py-3 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500;
+  }
   .eyebrow {
     @apply text-[11px] font-semibold tracking-[0.2em] text-accent;
   }

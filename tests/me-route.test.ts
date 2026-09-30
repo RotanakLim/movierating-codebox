@@ -16,7 +16,11 @@ vi.mock("@/lib/supabase/server", () => ({
     }),
   }),
 }));
+import { NextRequest } from "next/server";
 import { GET } from "@/app/api/me/route";
+
+const me = (query = "") =>
+  GET(new NextRequest(`https://codebox.test/api/me${query}`));
 
 beforeEach(() => {
   Object.values(mocks).forEach((mock) => mock.mockReset());
@@ -26,7 +30,7 @@ beforeEach(() => {
 describe("GET /api/me", () => {
   it("reports a guest without reading profiles, never cached", async () => {
     mocks.claims.mockResolvedValue({ data: null, error: null });
-    const response = await GET();
+    const response = await me();
     expect(await response.json()).toEqual({ signedIn: false });
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(mocks.username).not.toHaveBeenCalled();
@@ -38,11 +42,18 @@ describe("GET /api/me", () => {
     });
     mocks.username.mockResolvedValue("film_fan");
     mocks.theme.mockResolvedValue({ data: { theme: "dark" } });
-    expect((await (await GET()).json()).theme).toBe("dark");
+    expect((await (await me("?theme=1")).json()).theme).toBe("dark");
     mocks.theme.mockResolvedValue({ data: { theme: null } });
-    expect((await (await GET()).json()).theme).toBeNull();
+    expect((await (await me("?theme=1")).json()).theme).toBeNull();
     mocks.theme.mockResolvedValue({ data: { theme: "neon" } });
-    expect((await (await GET()).json()).theme).toBeNull();
+    expect((await (await me("?theme=1")).json()).theme).toBeNull();
+    // Ordinary page loads skip the preferences query.
+    mocks.theme.mockClear();
+    expect(await (await me()).json()).toEqual({
+      signedIn: true,
+      username: "film_fan",
+    });
+    expect(mocks.theme).not.toHaveBeenCalled();
   });
   it("returns the username, or null before onboarding", async () => {
     mocks.claims.mockResolvedValue({
@@ -50,21 +61,19 @@ describe("GET /api/me", () => {
       error: null,
     });
     mocks.username.mockResolvedValue("film_fan");
-    expect(await (await GET()).json()).toEqual({
+    expect(await (await me()).json()).toEqual({
       signedIn: true,
       username: "film_fan",
-      theme: null,
     });
     mocks.username.mockResolvedValue(null);
-    expect(await (await GET()).json()).toEqual({
+    expect(await (await me()).json()).toEqual({
       signedIn: true,
       username: null,
-      theme: null,
     });
   });
   it("is inert when Supabase is not configured", async () => {
     mocks.configured.mockReturnValue(null);
-    expect(await (await GET()).json()).toEqual({ signedIn: false });
+    expect(await (await me()).json()).toEqual({ signedIn: false });
     expect(mocks.claims).not.toHaveBeenCalled();
   });
 });

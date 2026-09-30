@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { THEME_KEY } from "@/lib/settings/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('codebox-theme');document.documentElement.classList.toggle('dark',t==='dark'||(!t&&matchMedia('(prefers-color-scheme: dark)').matches))}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem('${THEME_KEY}');document.documentElement.classList.toggle('dark',t==='dark'||(!t&&matchMedia('(prefers-color-scheme: dark)').matches))}catch(e){}})()`,
           }}
         />
       </head>

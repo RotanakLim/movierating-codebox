@@ -77,6 +77,19 @@ describe("<ThemeForm>", () => {
   });
 });
 
+describe("<ThemeForm> follows other controls", () => {
+  it("updates its selection when the header toggle changes the theme", async () => {
+    render(<ThemeForm account="light" />);
+    await act(async () => render(<ThemeToggle />));
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: /Toggle/ })),
+    );
+    expect((screen.getByLabelText(/^Dark/) as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+});
+
 describe("<ThemeToggle>", () => {
   it("saves to the account only when signed in", () => {
     const { rerender } = render(<ThemeToggle />);
@@ -106,13 +119,32 @@ describe("theme sync after sign-in", () => {
     expect(mocks.saveTheme).not.toHaveBeenCalled();
   });
   it("saves a choice made before sign-in when the account has none", async () => {
-    document.cookie = "sb-local-auth-token=x";
+    document.cookie = "sb-local-auth-token=second-session";
     localStorage.setItem("codebox-theme", "light");
     fetchMock.mockResolvedValue(
       Response.json({ signedIn: true, username: "fan", theme: null }),
     );
     await act(async () => render(<Probe />));
     expect(mocks.saveTheme).toHaveBeenCalledWith({ theme: "light" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/me?theme=1",
+      expect.anything(),
+    );
+  });
+  it("syncs once per session, so later navigations can't undo a newer choice", async () => {
+    document.cookie = "sb-local-auth-token=third-session";
+    fetchMock.mockImplementation(async () =>
+      Response.json({ signedIn: true, username: "fan", theme: "dark" }),
+    );
+    const { unmount } = await act(async () => render(<Probe />));
+    expect(dark()).toBe(true);
+    unmount();
+    // The user switches to light; a later page load must not re-apply dark.
+    localStorage.setItem("codebox-theme", "light");
+    document.documentElement.classList.remove("dark");
+    await act(async () => render(<Probe />));
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/me", expect.anything());
+    expect(dark()).toBe(false);
   });
 });
 

@@ -15,16 +15,14 @@ import {
   saveTheme,
 } from "@/app/settings/actions";
 import { Avatar } from "@/components/avatar";
-import { clearAllDrafts } from "@/lib/entries/drafts";
+import { AVATAR_MAX_BYTES, AVATAR_TYPES } from "@/lib/settings/avatar-limits";
 import {
+  THEME_CHANGED,
   THEMES,
   applyTheme,
   storedTheme,
   type Theme,
 } from "@/lib/settings/theme";
-
-const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 
 function Status({
   message,
@@ -208,6 +206,13 @@ export function ThemeForm({ account }: { account: Theme | null }) {
   useEffect(() => {
     if (!account) setTheme(storedTheme());
   }, [account]);
+  // Follow changes made elsewhere, e.g. the header toggle or a sign-in sync.
+  useEffect(() => {
+    const follow = (event: Event) =>
+      setTheme((event as CustomEvent<Theme>).detail);
+    window.addEventListener(THEME_CHANGED, follow);
+    return () => window.removeEventListener(THEME_CHANGED, follow);
+  }, []);
   return (
     <fieldset className="grid gap-3 sm:grid-cols-3">
       <legend className="sr-only">Theme</legend>
@@ -334,7 +339,7 @@ export function DeleteAccount({
   const [pending, startTransition] = useTransition();
   const matches = confirmation.trim().toLowerCase() === username;
   return (
-    <div className="rounded-2xl border border-red-500/40 p-5">
+    <div className="rounded-2xl border border-red-300 p-5 dark:border-red-800">
       <p className="text-sm leading-relaxed">
         Deleting your account is{" "}
         <strong>permanent and can&apos;t be undone</strong>. You&apos;ll be
@@ -359,7 +364,6 @@ export function DeleteAccount({
                 const result = await deleteAccount({ confirmation });
                 if (result && !result.ok) setError(result.error);
               });
-              clearAllDrafts();
             }}
           >
             <label htmlFor="delete-confirmation">
@@ -376,7 +380,7 @@ export function DeleteAccount({
             <Status message={error} error />
             <button
               type="submit"
-              className="mt-4 inline-flex min-h-11 items-center rounded-full bg-red-600 px-5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              className="button-danger mt-4"
               disabled={pending || !matches}
             >
               {pending ? "Deleting…" : "Delete my account permanently"}

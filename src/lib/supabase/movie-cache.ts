@@ -83,7 +83,7 @@ export async function readCachedMovie(
   }
 }
 export async function consumeMovieLimit(
-  scope: "search" | "selection" | "avatar",
+  scope: "search" | "selection" | "avatar" | "reauth",
   keyHash: string,
 ) {
   const client = createCacheClient();

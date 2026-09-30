@@ -17,9 +17,18 @@ export function NotifyProfileChanged() {
 }
 
 /** Supabase stores the session in a readable cookie named sb-<ref>-auth-token. */
-function hasSessionCookie() {
-  return /(?:^|;\s*)sb-[^=]+-auth-token(?:\.\d+)?=/.test(document.cookie);
+function sessionCookie() {
+  return (
+    document.cookie.match(
+      /(?:^|;\s*)(sb-[^=]+-auth-token(?:\.\d+)?=[^;]*)/,
+    )?.[1] ?? null
+  );
 }
+
+// The session the account theme was last synced for. Syncing once per session,
+// not on every navigation, keeps a slow /api/me from undoing a newer local
+// change, and keeps the extra query off ordinary page loads.
+let themeSyncedFor: string | null = null;
 
 /**
  * After sign-in the account theme wins over this browser's copy. If the account
@@ -47,12 +56,26 @@ export function useProfile(): Profile {
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
-      if (!hasSessionCookie()) return setProfile(null);
+      const session = sessionCookie();
+      if (!session) {
+        themeSyncedFor = null;
+        return setProfile(null);
+      }
+      const withTheme = themeSyncedFor !== session;
       try {
-        const response = await fetch("/api/me", { signal: controller.signal });
+        const response = await fetch(
+          withTheme ? "/api/me?theme=1" : "/api/me",
+          {
+            signal: controller.signal,
+          },
+        );
         const body = await response.json();
-        if (response.ok && body.signedIn)
-          syncTheme(body.theme, typeof body.username === "string");
+        const onboarded = typeof body.username === "string";
+        // Before onboarding there is no account to sync with yet; try again after.
+        if (response.ok && body.signedIn && withTheme && onboarded) {
+          themeSyncedFor = session;
+          syncTheme(body.theme, onboarded);
+        }
         setProfile(
           response.ok && body.signedIn
             ? {

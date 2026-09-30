@@ -771,16 +771,28 @@ insert into auth.users(id, email_confirmed_at) values
 update public.users set username = 'leaving' where id = '00000000-0000-0000-0000-000000000020';
 update public.users set username = 'staying' where id = '00000000-0000-0000-0000-000000000021';
 insert into auth.sessions(user_id) values ('00000000-0000-0000-0000-000000000020'), ('00000000-0000-0000-0000-000000000020'), ('00000000-0000-0000-0000-000000000021');
-select codebox_test.ok((select public and file_size_limit = 2097152 and allowed_mime_types = '{image/jpeg,image/png,image/webp}' from storage.buckets where id = 'avatars'), 'avatars bucket is public, 2 MB, JPEG/PNG/WebP only');
+select codebox_test.ok((select public and file_size_limit = 2097152 and allowed_mime_types = '{image/webp}' from storage.buckets where id = 'avatars'), 'avatars bucket is public, 2 MB, stores only the server''s WebP output');
+insert into auth.users(id, email_confirmed_at) values ('00000000-0000-0000-0000-000000000022', now());
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000020', false);
-insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/face.webp');
+insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp');
 select codebox_test.ok((select count(*) = 1 from storage.objects where bucket_id = 'avatars'), 'owner can upload to and see their own avatar folder');
-select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000021/face.webp')$q$, '42501', 'cannot upload into another user''s avatar folder');
-select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/nested/face.webp')$q$, '42501', 'avatar uploads cannot use nested folders');
-select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', 'face.webp')$q$, '42501', 'avatar uploads must be inside the owner folder');
-update public.users set avatar = '00000000-0000-0000-0000-000000000020/face.webp' where id = auth.uid();
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000021/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp')$q$, '42501', 'cannot upload into another user''s avatar folder');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/nested/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp')$q$, '42501', 'avatar uploads cannot use nested folders');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp')$q$, '42501', 'avatar uploads must be inside the owner folder');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/face.webp')$q$, '42501', 'avatar file names must be the server''s random UUID');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.png')$q$, '42501', 'avatar files must be WebP');
+insert into storage.objects(bucket_id, name) values
+ ('avatars', '00000000-0000-0000-0000-000000000020/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp'),
+ ('avatars', '00000000-0000-0000-0000-000000000020/cccccccc-cccc-4ccc-8ccc-cccccccccccc.webp');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000020/dddddddd-dddd-4ddd-8ddd-dddddddddddd.webp')$q$, '42501', 'at most three avatar files per user');
+delete from storage.objects where name like '00000000-0000-0000-0000-000000000020/bbbb%' or name like '00000000-0000-0000-0000-000000000020/cccc%';
+select codebox_test.ok((select count(*) = 1 from storage.objects where bucket_id = 'avatars'), 'owners can remove their own avatar files');
+update public.users set avatar = '00000000-0000-0000-0000-000000000020/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp' where id = auth.uid();
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000022', false);
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000022/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp')$q$, '42501', 'accounts without a username cannot upload avatars');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000020', false);
 select codebox_test.denied($q$update public.users set avatar = '00000000-0000-0000-0000-000000000021/face.webp' where id = auth.uid()$q$, '23514', 'profile avatar must point into the owner folder');
 insert into public.user_preferences(theme) values ('dark');
 select codebox_test.denied($q$update public.user_preferences set theme = 'neon'$q$, '23514', 'theme must be system, light or dark');
@@ -792,7 +804,7 @@ select codebox_test.ok((select count(*) = 0 from public.user_preferences where u
 insert into public.reports(target_user_id, reason, details) values ('00000000-0000-0000-0000-000000000020', 'spam', 'Names leaving');
 set role anon;
 select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('avatars', 'x/face.webp')$q$, '42501', 'guests cannot upload avatars');
-select codebox_test.denied($q$select public.request_account_deletion()$q$, '42501', 'guests cannot request account deletion');
+select codebox_test.denied($q$select public.request_account_deletion('leaving')$q$, '42501', 'guests cannot request account deletion');
 
 -- The leaving user has content everywhere, then deletes their account.
 set role authenticated;
@@ -803,8 +815,16 @@ insert into public.list_items(list_id, movie_id) select id, 157336 from public.l
 select public.request_follow('00000000-0000-0000-0000-000000000021');
 insert into public.reports(target_user_id, reason, details) values ('00000000-0000-0000-0000-000000000021', 'other', 'Details about staying');
 select codebox_test.denied($q$select * from public.pending_account_deletions()$q$, '42501', 'users cannot read the deletion queue');
-select public.request_account_deletion();
-select public.request_account_deletion();
+select codebox_test.denied($q$select public.request_account_deletion('leaving')$q$, '42501', 'deletion needs a sign-in time in the token');
+select set_config('request.jwt.claims', jsonb_build_object('sub', auth.uid(), 'amr', jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from now())::bigint - 3600)))::text, false);
+select codebox_test.denied($q$select public.request_account_deletion('leaving')$q$, '42501', 'deletion needs a sign-in within the last 10 minutes, even when called directly');
+select set_config('request.jwt.claims', jsonb_build_object('sub', auth.uid(), 'amr', jsonb_build_array('password', null, jsonb_build_object('method', 'password', 'timestamp', extract(epoch from now())::bigint - 60)))::text, false);
+select codebox_test.denied($q$select public.request_account_deletion('staying')$q$, '22023', 'deletion needs the account''s own username typed, even when called directly');
+select codebox_test.denied($q$select public.request_account_deletion(null)$q$, '22023', 'deletion refuses a missing confirmation');
+select codebox_test.ok((select count(*) = 1 from public.users where id = auth.uid()), 'refused deletion requests change nothing');
+select public.request_account_deletion(' Leaving ');
+select set_config('request.jwt.claims', '', false);
+select public.request_account_deletion('leaving');
 select codebox_test.ok(true, 'repeating the deletion request is harmless');
 select codebox_test.denied($q$insert into public.entries(movie_id, score) values (27205, 5.0)$q$, '42501', 'a deleted account can no longer contribute, even with a live token');
 reset role;
@@ -837,6 +857,104 @@ begin
   end loop;
   perform codebox_test.ok(not (public.consume_movie_request_limit('avatar', repeat('d',64)) ->> 'allowed')::boolean, 'avatar uploads are limited to 10 per hour');
   perform codebox_test.ok((public.consume_movie_request_limit('avatar', repeat('d',64)) ->> 'retry_after')::integer > 600, 'the avatar limit window is an hour');
+  for attempt in 1..5 loop
+    if (public.consume_movie_request_limit('reauth', repeat('e',64)) ->> 'allowed')::boolean is not true then raise exception 'Re-check denied before limit'; end if;
+  end loop;
+  perform codebox_test.ok(not (public.consume_movie_request_limit('reauth', repeat('e',64)) ->> 'allowed')::boolean, 'password re-checks are limited to 5 per 15 minutes');
 end;
 $$;
 reset role;
+
+-- The retry queue serves the least-attempted rows first, so failures can't starve newer work.
+insert into codebox_private.account_deletions(user_id, requested_at, attempts) values
+ ('00000000-0000-0000-0000-0000000000f1', now() - interval '3 days', 9),
+ ('00000000-0000-0000-0000-0000000000f2', now() - interval '1 hour', 0);
+set role service_role;
+select codebox_test.ok((select user_id = '00000000-0000-0000-0000-0000000000f2' from public.pending_account_deletions(1)), 'retries prefer rows with fewer failed attempts');
+select codebox_test.ok((select count(*) = 1 from public.pending_account_deletions(0)), 'the queue always returns at least one row per call');
+select public.record_account_deletion_attempt('00000000-0000-0000-0000-0000000000f1');
+select public.record_account_deletion_attempt('00000000-0000-0000-0000-0000000000f1', 'late failure');
+reset role;
+select codebox_test.ok((select attempts = 10 and last_error is null and completed_at is not null from codebox_private.account_deletions where user_id = '00000000-0000-0000-0000-0000000000f1'), 'a completed cleanup is never reopened by a later attempt record');
+delete from codebox_private.account_deletions where user_id in ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-0000000000f2');
+
+-- Deletion queue invariants, function privileges, theme values and avatar file management.
+reset role;
+
+-- Queue fixtures: 105 unfinished rows with increasing request times, plus one done row.
+insert into codebox_private.account_deletions(user_id, requested_at)
+select ('00000000-0000-0000-0001-' || lpad(i::text, 12, '0'))::uuid,
+       timestamptz '2026-01-01' + (i || ' minutes')::interval
+from generate_series(1, 105) i;
+insert into codebox_private.account_deletions(user_id, requested_at, attempts, completed_at)
+values ('00000000-0000-0000-0002-000000000001', timestamptz '2025-01-01', 3, now());
+
+set role service_role;
+select codebox_test.ok((select count(*) = 1 from public.pending_account_deletions(0)), 'pending_account_deletions clamps max_rows 0 up to 1');
+select codebox_test.ok((select count(*) = 1 from public.pending_account_deletions(-5)), 'pending_account_deletions clamps negative max_rows up to 1');
+select codebox_test.ok((select count(*) = 100 from public.pending_account_deletions(1000)), 'pending_account_deletions clamps max_rows down to 100');
+select codebox_test.ok((select count(*) = 100 from public.pending_account_deletions(null)), 'pending_account_deletions treats NULL max_rows as the 100 cap');
+select codebox_test.ok((select count(*) = 20 from public.pending_account_deletions()), 'pending_account_deletions defaults to 20 rows');
+select codebox_test.ok((select user_id = '00000000-0000-0000-0001-000000000001' from public.pending_account_deletions(1)), 'among equal attempts, the oldest request comes first');
+select codebox_test.ok((select count(*) = 0 from public.pending_account_deletions(100) where user_id = '00000000-0000-0000-0002-000000000001'), 'completed rows are never pending, even if older');
+
+-- record_account_deletion_attempt must not touch completed rows.
+select public.record_account_deletion_attempt('00000000-0000-0000-0002-000000000001', 'late failure');
+select public.record_account_deletion_attempt('00000000-0000-0000-0002-000000000001');
+reset role;
+select codebox_test.ok((select attempts = 3 and last_error is null and completed_at is not null from codebox_private.account_deletions where user_id = '00000000-0000-0000-0002-000000000001'), 'recording an attempt never reopens or changes a completed row');
+set role service_role;
+
+-- Failure text is truncated; a success clears a previous error.
+select public.record_account_deletion_attempt('00000000-0000-0000-0001-000000000002', repeat('x', 900));
+reset role;
+select codebox_test.ok((select length(last_error) = 500 and attempts = 1 and completed_at is null from codebox_private.account_deletions where user_id = '00000000-0000-0000-0001-000000000002'), 'failure reasons are truncated to 500 characters');
+set role service_role;
+select public.record_account_deletion_attempt('00000000-0000-0000-0001-000000000002');
+reset role;
+select codebox_test.ok((select last_error is null and attempts = 2 and completed_at is not null from codebox_private.account_deletions where user_id = '00000000-0000-0000-0001-000000000002'), 'a later success clears the previous error');
+set role service_role;
+select public.record_account_deletion_attempt('00000000-0000-0000-0003-000000000001', 'unknown');
+reset role;
+select codebox_test.ok((select count(*) = 0 from codebox_private.account_deletions where user_id = '00000000-0000-0000-0003-000000000001'), 'recording an attempt for an unknown user creates nothing');
+
+-- Function privileges.
+select codebox_test.ok(not has_function_privilege('authenticated', 'public.record_account_deletion_attempt(uuid, text)', 'EXECUTE'), 'users cannot record deletion attempts');
+select codebox_test.ok(not has_function_privilege('anon', 'public.record_account_deletion_attempt(uuid, text)', 'EXECUTE'), 'guests cannot record deletion attempts');
+select codebox_test.ok(not has_function_privilege('anon', 'public.pending_account_deletions(integer)', 'EXECUTE'), 'guests cannot read the deletion queue');
+select codebox_test.ok(not has_function_privilege('anon', 'public.request_account_deletion(text)', 'EXECUTE'), 'guests have no request_account_deletion grant');
+select codebox_test.ok(has_function_privilege('authenticated', 'public.request_account_deletion(text)', 'EXECUTE'), 'users can request their own deletion');
+select codebox_test.ok(not has_table_privilege('service_role', 'codebox_private.account_deletions', 'SELECT'), 'even the service role reads the queue only through the functions');
+select codebox_test.ok(not has_table_privilege('authenticated', 'codebox_private.account_deletions', 'SELECT'), 'users cannot read the deletion queue table');
+
+-- Avatar request limit scope still rejects unknown scopes.
+set role service_role;
+select codebox_test.denied($q$select public.consume_movie_request_limit('upload', repeat('e', 64))$q$, '22023', 'unknown request limit scopes are still rejected');
+select codebox_test.denied($q$select public.consume_movie_request_limit('avatar', 'not-a-hash')$q$, '22023', 'avatar limit keys must be hashes');
+select codebox_test.ok(((public.consume_movie_request_limit('avatar', repeat('f', 64)) ->> 'allowed')::boolean), 'avatar limit buckets are separate per key');
+reset role;
+select codebox_test.ok(not has_function_privilege('authenticated', 'public.consume_movie_request_limit(text, text)', 'EXECUTE'), 'users cannot consume request limits directly');
+
+-- Theme column behaviour and avatar self-management.
+insert into auth.users(id, email_confirmed_at) values ('00000000-0000-0000-0000-000000000030', now()), ('00000000-0000-0000-0000-000000000031', now());
+update public.users set username = 'themer' where id = '00000000-0000-0000-0000-000000000030';
+update public.users set username = 'other_themer' where id = '00000000-0000-0000-0000-000000000031';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000031', false);
+insert into public.user_preferences(theme) values ('light');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000030', false);
+insert into public.user_preferences(theme) values ('system');
+select codebox_test.ok((select theme = 'system' from public.user_preferences where user_id = auth.uid()), 'system is a valid stored theme');
+update public.user_preferences set theme = null where user_id = auth.uid();
+select codebox_test.ok((select theme is null from public.user_preferences where user_id = auth.uid()), 'theme can be reset to never-chosen (NULL)');
+with touched as (update public.user_preferences set theme = 'dark' where user_id = '00000000-0000-0000-0000-000000000031' returning 1)
+  select codebox_test.ok((select count(*) = 0 from touched), 'users cannot change someone else''s theme');
+select codebox_test.denied($q$update public.user_preferences set user_id = '00000000-0000-0000-0000-000000000031' where user_id = auth.uid()$q$, '42501', 'users cannot move their preferences row to another user');
+insert into storage.objects(bucket_id, name) values ('avatars', '00000000-0000-0000-0000-000000000030/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.webp');
+with touched as (update storage.objects set name = '00000000-0000-0000-0000-000000000031/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.webp' where bucket_id = 'avatars' returning 1)
+  select codebox_test.ok((select count(*) = 0 from touched), 'avatar files cannot be moved into another folder (no update policy)');
+with touched as (delete from storage.objects where bucket_id = 'avatars' and name = '00000000-0000-0000-0000-000000000030/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.webp' returning 1)
+  select codebox_test.ok((select count(*) = 1 from touched), 'owners can delete their own avatar files');
+select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('other-bucket', '00000000-0000-0000-0000-000000000030/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.webp')$q$, '42501', 'the avatar policies do not open other buckets');
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
