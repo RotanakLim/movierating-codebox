@@ -31,8 +31,10 @@ export function getPublicConfig() {
 /**
  * Google sign-in is optional. It stays off (no button, and the action refuses)
  * until GOOGLE_AUTH_ENABLED is "true", which you set once the Google provider is
- * configured in Supabase. Server-only and read per request, so changing it in
- * Vercel takes effect on the next deploy without a code change.
+ * configured in Supabase. This only gates the app's own UI and action: to really
+ * turn Google off, also keep the provider disabled in Supabase. Server-only and
+ * read at request time, so no rebuild is needed: restart the dev server locally,
+ * or redeploy on Vercel (env changes apply to new deployments).
  */
 export function googleAuthEnabled() {
   return process.env.GOOGLE_AUTH_ENABLED?.trim().toLowerCase() === "true";

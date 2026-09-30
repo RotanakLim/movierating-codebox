@@ -29,13 +29,13 @@ export function AuthForm({
   mode,
   next,
   configured,
-  google = false,
+  googleEnabled = false,
 }: {
   mode: AuthMode;
   next: string;
   configured: boolean;
   /** Show "Continue with Google" (GOOGLE_AUTH_ENABLED on the server). */
-  google?: boolean;
+  googleEnabled?: boolean;
 }) {
   const [state, action, pending] = useActionState(actions[mode], {});
   const [googleState, googleAction, googlePending] = useActionState(
@@ -44,7 +44,7 @@ export function AuthForm({
   );
   const social = mode === "sign-in" || mode === "sign-up";
   const password = social || mode === "update-password";
-  const showGoogle = social && google;
+  const showGoogle = social && googleEnabled;
   const createPassword = mode === "sign-up" || mode === "update-password";
   const disabled = !configured || pending || googlePending;
   const suffix = `?next=${encodeURIComponent(next)}`;

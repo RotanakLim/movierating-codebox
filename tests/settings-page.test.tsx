@@ -20,7 +20,9 @@ vi.mock("next/image", () => ({
   // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
   default: (props: Record<string, unknown>) => <img {...(props as object)} />,
 }));
+const google = vi.hoisted(() => ({ enabled: true }));
 vi.mock("@/lib/env", () => ({
+  googleAuthEnabled: () => google.enabled,
   getPublicConfig: () => ({
     url: "https://db.codebox.test",
     siteUrl: "https://codebox.test",
@@ -84,6 +86,7 @@ function signIn(providers: string[]) {
 }
 
 beforeEach(() => {
+  google.enabled = true;
   Object.values(mocks).forEach((mock) => mock.mockReset());
   localStorage.clear();
   vi.stubGlobal(
@@ -224,6 +227,18 @@ describe("Settings page", () => {
     expect(
       screen.getByRole("button", { name: "Confirm with Google" }),
     ).toBeTruthy();
+  });
+
+  it("with Google switched off, asks Google-only accounts for a password and links to setting one", async () => {
+    google.enabled = false;
+    signIn(["google"]);
+    mocks.authenticatedAt.mockResolvedValue(null);
+    await renderPage();
+    expect(
+      screen.queryByRole("button", { name: "Confirm with Google" }),
+    ).toBeNull();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "set one first" })).toBeTruthy();
   });
 
   it("offers a password when identities are unknown", async () => {

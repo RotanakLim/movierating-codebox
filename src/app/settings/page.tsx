@@ -5,6 +5,8 @@ import type { Visibility } from "@/lib/profiles/types";
 import { avatarUrl } from "@/lib/profiles/avatar-url";
 import { isRecent, lastAuthenticatedAt } from "@/lib/auth/recent";
 import { isTheme } from "@/lib/settings/theme";
+import { reauthOptions } from "@/lib/settings/reauth";
+import { googleAuthEnabled } from "@/lib/env";
 import {
   FollowRequest,
   RemoveFollowerButton,
@@ -292,8 +294,7 @@ export default async function SettingsPage() {
           <DeleteAccount
             username={username}
             recent={isRecent(authenticatedAt)}
-            hasPassword={providers.has("email") || !providers.has("google")}
-            hasGoogle={providers.has("google")}
+            {...reauthOptions(providers, googleAuthEnabled())}
           />
         </Section>
       </div>

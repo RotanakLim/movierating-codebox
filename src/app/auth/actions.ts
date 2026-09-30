@@ -112,7 +112,10 @@ export async function signInWithGoogle(
   const config = getPublicConfig();
   if (!config) return unavailable;
   if (!googleAuthEnabled())
-    return { error: "Google sign-in isn't available. Use your email instead." };
+    return {
+      error:
+        "Google sign-in is unavailable on this site. Use your email and password instead.",
+    };
   let destination: string | undefined;
   try {
     const supabase = await createClient();
