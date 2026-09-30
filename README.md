@@ -1,6 +1,6 @@
 # CodeBox Movies
 
-Next.js **15.5.26**, TypeScript, Tailwind CSS 4, and Supabase email/password + Google authentication. Includes movie discovery, posters, basic detail pages, and secure selection caching from `SPEC.md`. The remaining movie platform features are still in progress. Google OAuth is now in scope per the latest request.
+Next.js **15.5.26**, TypeScript, Tailwind CSS 4, and Supabase email/password + Google authentication. Includes movie discovery, posters, basic detail pages, and a secure movie-cache endpoint from `SPEC.md`. The remaining movie platform features are still in progress. Google OAuth is now in scope per the latest request.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ Open http://localhost:3000. Without credentials, the landing page runs and auth 
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | The project's **publishable** key (a legacy anon key also works)              |
 | `NEXT_PUBLIC_SITE_URL`                 | Exact canonical app origin, e.g. `http://localhost:3000`; HTTPS in production |
 
-The public key is intentionally browser-safe when database RLS is properly configured. **Never use a secret/service-role key here.** The separate server-only `SUPABASE_SERVICE_ROLE_KEY` is used for movie caching and request limits. `.env.local` is ignored; `.env.example` contains blank key fields. Google secrets are configured in Supabase, not in frontend environment variables. Restart the dev server after changing environment values; rebuild deployments after changing public variables.
+The public key is intentionally browser-safe when database RLS is properly configured. **Never use a secret/service-role key here.** The separate server-only `SUPABASE_SERVICE_ROLE_KEY` is used for movie caching and request-limit writes; `RATE_LIMIT_SECRET` keys the anonymised request-limit hashes. `.env.local` is ignored; `.env.example` contains blank key fields. Google secrets are configured in Supabase, not in frontend environment variables. Restart the dev server after changing environment values; rebuild deployments after changing public variables.
 
 ## Movie discovery setup
 
@@ -31,18 +31,19 @@ Add these **server-only** values to `.env.local` and your Vercel environment:
 | ---------------------------- | ---------------------------------------------------------------- |
 | `TMDB_API_READ_ACCESS_TOKEN` | TMDB API Read Access Token, not the shorter API key              |
 | `SUPABASE_SERVICE_ROLE_KEY`  | Supabase service-role key for the same project as the public URL |
+| `RATE_LIMIT_SECRET`          | At least 32 random bytes: generate with `openssl rand -hex 32`   |
 
-Never prefix either with `NEXT_PUBLIC_`. Apply all three SQL migrations in timestamp order; see [DATABASE.md](DATABASE.md). Search requires TMDB plus Supabase configuration because request quotas are persisted in the database. Restart after configuring credentials. Missing configuration produces a recoverable setup message.
+Never prefix any of these with `NEXT_PUBLIC_`. `RATE_LIMIT_SECRET` is only an HMAC key for request-limit counters: it must be at least 64 characters and must not reuse another key. Rotating it just resets current quotas. Apply all SQL migrations in timestamp order; see [DATABASE.md](DATABASE.md). Search requires TMDB plus Supabase configuration because request quotas are persisted in the database. Restart after configuring credentials. Missing configuration produces a recoverable setup message.
 
-Visit `/discover` to search titles, filter by genre/year, and load more results. `/search` redirects there while preserving filters. Posters have a missing-image fallback. `/movies/[tmdbId]` shows basic details, and `/about` includes TMDB attribution.
+Visit `/discover` to search titles, filter by genre/year, and load more results. `/search` redirects there while preserving filters. Posters load directly from TMDB's CDN (`w342` in grids, `w500` on detail pages, no Next.js image optimization) and have a missing-image fallback. `/movies/[tmdbId]` shows basic details under a `<Title> (<Year>)` page title, and `/about` includes TMDB attribution.
 
 `GET /api/movies/search` calls TMDB on the server. Search results are cached for five minutes; detail responses for 24 hours. For title searches, genre filtering applies to each fetched TMDB page, so a filtered page can be empty while more pages remain. Browse-only genre filtering is handled upstream.
 
-Selecting a movie posts only `{ "tmdbId": 693134 }` to `/api/movies/cache`. A verified signed-in user is required. The server fetches authoritative metadata and upserts only `tmdb_id`, `title`, `poster`, `year`, and `cached_at`; repeated selection is safe. This does not create a rating or watchlist entry. Guests can browse and view details, then sign in and select again. Use the exact `NEXT_PUBLIC_SITE_URL` browser origin so the mutation origin check succeeds.
+`POST /api/movies/cache` accepts only `{ "tmdbId": 693134 }` and `cacheMovie()` upserts a movie into `movies`. No UI calls them yet; the upcoming rating and watchlist actions will, because entries and list items reference `movies`. A verified signed-in user is required. The server fetches authoritative metadata and upserts only `tmdb_id`, `title`, `poster`, `year`, and `cached_at`; repeated calls are safe. Use the exact `NEXT_PUBLIC_SITE_URL` browser origin so the mutation origin check succeeds.
 
-Search and detail reads share a limit of 60 requests/minute per trusted Vercel client IP. Outside Vercel they share a deployment-wide bucket until a trusted proxy integration is supplied. Selection allows 30 requests/10 minutes per verified user. Database keys are HMAC hashes; expired quota rows are cleaned up after a day during requests. If the quota database is unavailable, requests fail with a retryable error. Detail pages can fall back to minimal cached metadata on service failures, but never on a TMDB not-found/adult exclusion response.
+`/api/movies/search` is limited to 60 requests/minute per trusted Vercel client IP. Outside Vercel it uses a deployment-wide bucket until a trusted proxy integration is supplied. Movie detail pages are not rate-limited: they render from TMDB details cached for 24 hours, so a page view never writes to the database. The cache endpoint allows 30 requests/10 minutes per verified user. Database keys are HMAC hashes; quota rows older than a day are cleaned up on about 1% of requests. If the quota database is unavailable, requests fail with a retryable error. Detail pages can fall back to minimal cached metadata on service failures, but never on a TMDB not-found/adult exclusion response.
 
-Tests use mocked TMDB/Supabase responses and an isolated PostgreSQL engine; they do not validate live credentials. After setup, search for a movie, select it while signed in, and inspect its minimal `movies` row in Supabase.
+Tests use mocked TMDB/Supabase responses and an isolated PostgreSQL engine; they do not validate live credentials. After setup, search for a movie and open its detail page to confirm TMDB and the quota database are reachable.
 
 References: [TMDB application authentication](https://developer.themoviedb.org/docs/authentication-application), [movie search](https://developer.themoviedb.org/reference/search-movie), [poster images](https://developer.themoviedb.org/docs/image-basics).
 
@@ -79,6 +80,22 @@ References: [TMDB application authentication](https://developer.themoviedb.org/d
 </p>
 ```
 
+### Apply migrations to my hosted project
+
+Run these yourself; nothing in this repository connects to your hosted project. The CLI is a pinned dev dependency, so use `npx`.
+
+1. `npx supabase login` (opens a browser to create an access token).
+2. `npx supabase link --project-ref <your-project-ref>` — the ref is the subdomain in your project URL (`https://<project-ref>.supabase.co`). You will be asked for the database password.
+3. `npx supabase db push --dry-run` — lists the migrations that would run. Check that only the new, expected files appear.
+4. `npx supabase db push` — applies them in timestamp order and records them in the project's migration history.
+5. In the dashboard, open **Project Settings → Data API** and confirm **Exposed schemas** lists `public` (and `graphql_public`) but **not** `codebox_private`. That schema holds internal helper functions and rate-limit counters and must never be reachable through the API.
+6. Open **Advisors → Security Advisor** and review every finding. `user_identities`, `public_reviews` and `public_current_ratings` are intentionally narrow definer views (see [DATABASE.md](DATABASE.md)); anything else is a real issue to fix.
+7. Confirm the signup trigger works: sign up a test account, then in **Table Editor** open `users` and check a row exists whose `id` matches the new user in **Authentication → Users**, and open `lists` and check that user has exactly one row with `kind = watchlist` and `name = Watchlist`. Both rows are created by the `handle_auth_signup` / `create_watchlist` triggers; if either is missing, the migrations did not apply correctly.
+
+### Local database and generated types
+
+`npx supabase start` (or `npx supabase db start` for Postgres only) runs a local stack in Docker and applies every migration. After changing a migration, run `npm run db:types` to regenerate `src/lib/supabase/database.types.ts`, which types the server, browser and service-role clients. `supabase/config.toml` is local-only configuration and contains no secrets.
+
 The token-hash confirmation route allows email links to work across browsers. Recovery always sends the verified user to `/auth/update-password`; query parameters cannot override it. Supabase manages `auth.users`. The core application tables now have SQL migrations; see [DATABASE.md](DATABASE.md) for application, privacy rules, and integration examples. Client-side route hiding is not data authorization.
 
 ## Google setup
@@ -105,7 +122,7 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
 - `/auth/error`: expired/canceled/failed auth recovery links.
 - `/account`: server-protected account page and current-browser sign-out.
 
-`src/lib/supabase/client.ts` supplies the browser client for future interactive data features; `server.ts` supplies a request-scoped cookie client. `src/middleware.ts` refreshes sessions and forwards updated cookies; this is **middleware.ts**, not Next.js 16's proxy.ts. Protected pages/actions independently verify identity via `getUser()`, not `getSession()`. Callback redirects use the configured canonical origin and reject external `next` values. Auth responses are private/no-store and auth pages are noindex. Account information is not exposed to guests.
+`src/lib/supabase/client.ts` supplies the browser client for future interactive data features; `server.ts` supplies a request-scoped cookie client. `src/middleware.ts` refreshes sessions with `getClaims()` and forwards updated cookies; this is **middleware.ts**, not Next.js 16's proxy.ts. It skips `/api/movies/search`, and only marks a response `private, no-store` when it refreshes auth cookies or the path is under `/auth` or `/account`, so public pages stay cacheable. `getClaims()` verifies the JWT locally when the project uses asymmetric JWT signing keys (otherwise it calls Auth), but cannot see sessions revoked since the token was issued, so protected pages and server actions independently verify identity via `getUser()`, never `getSession()`. Pages that call `getUser()` always render dynamically; `/about` and `/discover` are static. Callback redirects use the configured canonical origin and reject external `next` values. Auth responses are private/no-store and auth pages are noindex. Account information is not exposed to guests.
 
 Passwords and provider error payloads are not logged. Supabase handles password storage and auth rate limits; configure its abuse controls before public launch. Theme account synchronization, username onboarding, reviews, and the rest of `SPEC.md` remain future work.
 
@@ -129,6 +146,6 @@ After setting up your real project, manually verify: signup → email confirmati
 
 ## Deploy to Vercel
 
-Import this repository as a Next.js project. Add all five environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. Auth secrets and test accounts are not bundled in the repository.
+Import this repository as a Next.js project. Add all six environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. Auth secrets and test accounts are not bundled in the repository.
 
 Official references: [Next.js 15 installation](https://nextjs.org/docs/15/app/getting-started/installation), [Supabase SSR](https://supabase.com/docs/guides/auth/server-side/creating-a-client), [email/password authentication](https://supabase.com/docs/guides/auth/passwords).

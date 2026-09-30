@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Clapperboard } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import "./globals.css";
-export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: {

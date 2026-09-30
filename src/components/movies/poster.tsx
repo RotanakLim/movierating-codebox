@@ -2,13 +2,18 @@
 import Image from "next/image";
 import { Film } from "lucide-react";
 import { useState } from "react";
+// TMDB already serves resized, CDN-cached posters. Request the size we display
+// and skip Next.js image optimization, which would re-fetch and re-encode each one.
+export type PosterSize = "w342" | "w500";
 export function MoviePoster({
   path,
   title,
+  size,
   priority = false,
 }: {
   path: string | null;
   title: string;
+  size: PosterSize;
   priority?: boolean;
 }) {
   const [failedPath, setFailedPath] = useState<string | null>(null);
@@ -16,10 +21,10 @@ export function MoviePoster({
     <div className="relative aspect-[2/3] overflow-hidden rounded-xl bg-line/60">
       {path && failedPath !== path ? (
         <Image
-          src={`https://image.tmdb.org/t/p/w500${path}`}
+          src={`https://image.tmdb.org/t/p/${size}${path}`}
           alt={`${title} poster`}
           fill
-          sizes="(max-width: 639px) 45vw, (max-width: 1023px) 30vw, 220px"
+          unoptimized
           priority={priority}
           className="object-cover transition-transform duration-300 group-hover:scale-[1.025]"
           onError={() => setFailedPath(path)}

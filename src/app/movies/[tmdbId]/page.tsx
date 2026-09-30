@@ -1,48 +1,68 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { ArrowLeft, Clock, Star } from "lucide-react";
-import { getMovieDetails, requireTmdbToken } from "@/lib/movies/tmdb";
+import { getMovieDetails } from "@/lib/movies/tmdb";
 import { movieId } from "@/lib/movies/validation";
 import { MovieError } from "@/lib/movies/errors";
-import { limitMovieRequest } from "@/lib/movies/limits";
 import { readCachedMovie } from "@/lib/supabase/movie-cache";
 import { MoviePoster } from "@/components/movies/poster";
-import { SelectMovie } from "@/components/movies/select-movie";
 import { safeNext } from "@/lib/auth/redirect";
 import type { MovieDetails } from "@/lib/movies/types";
-export const metadata: Metadata = { title: "Movie details" };
-export default async function MoviePage({
-  params,
-  searchParams,
-}: {
+
+type PageProps = {
   params: Promise<{ tmdbId: string }>;
   searchParams: Promise<{ from?: string }>;
-}) {
-  const { tmdbId } = await params;
+};
+type MovieLookup =
+  | { status: "found"; movie: MovieDetails }
+  | { status: "missing" }
+  | { status: "unavailable"; id: number; failure: string };
+
+// Shared by generateMetadata and the page within one request, so a cold cache
+// still makes a single TMDB call (details are cached for 24 hours by
+// unstable_cache; a page view needs no rate-limit write).
+const loadMovie = cache(async (tmdbId: string): Promise<MovieLookup> => {
   let id: number;
   try {
     id = movieId(tmdbId);
   } catch {
-    notFound();
+    return { status: "missing" };
   }
+  let failure = "Movie details are temporarily unavailable. Please try again.";
+  try {
+    return { status: "found", movie: await getMovieDetails(id) };
+  } catch (error) {
+    // A rejected/adult/deleted TMDB record must not be resurrected from the DB.
+    if (error instanceof MovieError && error.status === 404)
+      return { status: "missing" };
+    if (error instanceof MovieError) failure = error.message;
+  }
+  const cached = await readCachedMovie(id);
+  return cached
+    ? { status: "found", movie: cached }
+    : { status: "unavailable", id, failure };
+});
+
+export async function generateMetadata({
+  params,
+}: Pick<PageProps, "params">): Promise<Metadata> {
+  const result = await loadMovie((await params).tmdbId);
+  if (result.status !== "found") return { title: "Movie details" };
+  const { title, year } = result.movie;
+  return { title: year ? `${title} (${year})` : title };
+}
+
+export default async function MoviePage({ params, searchParams }: PageProps) {
+  const { tmdbId } = await params;
+  const result = await loadMovie(tmdbId);
+  if (result.status === "missing") notFound();
   const { from } = await searchParams;
   const source = safeNext(from, "/discover");
   const back = source.split("?")[0] === "/discover" ? source : "/discover";
-  let movie: MovieDetails | null = null;
-  let failure = "Movie details are temporarily unavailable. Please try again.";
-  try {
-    requireTmdbToken();
-    await limitMovieRequest("search", await headers());
-    movie = await getMovieDetails(id);
-  } catch (error) {
-    // A rejected/adult/deleted TMDB record must not be resurrected from the DB.
-    if (error instanceof MovieError && error.status === 404) notFound();
-    if (error instanceof MovieError) failure = error.message;
-    movie = await readCachedMovie(id);
-  }
-  if (!movie)
+  if (result.status === "unavailable") {
+    const { id, failure } = result;
     return (
       <section className="mx-auto max-w-xl py-16">
         <Link href={back} className="text-sm text-accent">
@@ -60,7 +80,8 @@ export default async function MoviePage({
         </Link>
       </section>
     );
-  const selectedMovie = movie;
+  }
+  const { movie } = result;
   return (
     <section className="py-10 sm:py-14">
       <Link
@@ -72,8 +93,12 @@ export default async function MoviePage({
       </Link>
       <div className="mt-9 grid gap-9 sm:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr] lg:gap-14">
         <div className="mx-auto w-full max-w-[280px] sm:mx-0">
-          <MoviePoster path={movie.posterPath} title={movie.title} priority />
-          <SelectMovie movieId={movie.id} title={movie.title} />
+          <MoviePoster
+            path={movie.posterPath}
+            title={movie.title}
+            size="w500"
+            priority
+          />
         </div>
         <div className="max-w-2xl">
           <p className="eyebrow mb-4">THE MOVIE COLLECTION</p>
@@ -125,7 +150,7 @@ export default async function MoviePage({
             Personal ratings and reviews are coming next.
           </p>
           <a
-            href={`https://www.themoviedb.org/movie/${selectedMovie.id}`}
+            href={`https://www.themoviedb.org/movie/${movie.id}`}
             className="mt-5 inline-block text-sm text-accent underline"
             target="_blank"
             rel="noreferrer"

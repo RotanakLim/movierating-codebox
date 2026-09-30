@@ -3,12 +3,13 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   images: {
     remotePatterns: [
-      {
-        protocol: "https",
+      // Posters load directly from TMDB (unoptimized) at these two sizes only.
+      ...["w342", "w500"].map((size) => ({
+        protocol: "https" as const,
         hostname: "image.tmdb.org",
-        pathname: "/t/p/w500/**",
+        pathname: `/t/p/${size}/**`,
         search: "",
-      },
+      })),
     ],
   },
   outputFileTracingRoot: process.cwd(),

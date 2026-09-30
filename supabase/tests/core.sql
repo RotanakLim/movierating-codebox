@@ -253,3 +253,23 @@ update codebox_private.movie_request_limits set window_started_at = now() - inte
 set role service_role;
 select codebox_test.ok((public.consume_movie_request_limit('search',repeat('a',64)) ->> 'allowed')::boolean, 'expired counter resets');
 reset role;
+-- Stale-row cleanup is occasional (random() < 0.01), not on every call.
+insert into codebox_private.movie_request_limits values ('search', repeat('d',64), now() - interval '2 days', 1);
+do $$
+begin
+  perform setseed(0.5);
+  if random() < 0.01 then raise exception 'Fixture seed must not trigger cleanup'; end if;
+  perform setseed(0.5);
+  perform public.consume_movie_request_limit('search', repeat('e',64));
+end;
+$$;
+select codebox_test.ok((select count(*) = 1 from codebox_private.movie_request_limits where key_hash = repeat('d',64)), 'a single request does not always run cleanup');
+do $$
+begin
+  -- 0.99^2000 < 1e-8: cleanup is effectively certain to run at least once.
+  for attempt in 1..2000 loop
+    perform public.consume_movie_request_limit('search', repeat('e',64));
+  end loop;
+end;
+$$;
+select codebox_test.ok((select count(*) = 0 from codebox_private.movie_request_limits where key_hash = repeat('d',64)), 'occasional cleanup removes day-old counters');

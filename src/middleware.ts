@@ -5,6 +5,7 @@ export function middleware(request: NextRequest) {
 }
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // /api/movies/search is public and sessionless; skip the session refresh.
+    "/((?!_next/static|_next/image|favicon.ico|api/movies/search$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

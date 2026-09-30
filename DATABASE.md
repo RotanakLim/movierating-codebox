@@ -1,21 +1,20 @@
 # CodeBox Movies database
 
-Three ordered Supabase SQL migrations implement the requested core tables, RLS, constrained writes, and feed automation. They have **not** been applied to a hosted project.
+Ordered Supabase SQL migrations implement the requested core tables, RLS, constrained writes, and feed automation. They have **not** been applied to a hosted project.
 
 ## Apply
 
 Preferred workflow with the Supabase CLI, from this repository:
 
 ```sh
-npx supabase init
 npx supabase start
 # Local, disposable database only: reset recreates local data and applies migrations.
 npx supabase db reset
 ```
 
-`init` creates the local CLI configuration; it does not create hosted resources. A Docker-compatible runtime is required for the local Supabase stack. Keep `codebox_private` out of the API's exposed schemas.
+`supabase/config.toml` (from `supabase init`) is the local CLI configuration; it does not create hosted resources. After changing a migration, run `npm run db:types` to regenerate `src/lib/supabase/database.types.ts`. A Docker-compatible runtime is required for the local Supabase stack. Keep `codebox_private` out of the API's exposed schemas.
 
-When ready to apply to your own hosted project, inspect the SQL first and use:
+When ready to apply to your own hosted project, inspect the SQL first and follow the checklist in [README.md](README.md#apply-migrations-to-my-hosted-project):
 
 ```sh
 npx supabase login
@@ -24,16 +23,18 @@ npx supabase db push --dry-run
 npx supabase db push
 ```
 
-Alternatively, run the contents of all three migration files in the Supabase SQL Editor, in timestamp order, as the database administrator. Do not then reapply the same migrations through the CLI without first reconciling its migration history. No secrets belong in SQL files. Never run the test fixture on a live database.
+Alternatively, run the contents of every migration file in the Supabase SQL Editor, in timestamp order, as the database administrator. Do not then reapply the same migrations through the CLI without first reconciling its migration history. No secrets belong in SQL files. Never run the test fixture on a live database.
 
 Files:
 
 1. `supabase/migrations/20260929000100_core_tables.sql`: tables, enums, constraints, indexes, RLS enabled, explicit revocation of default client grants.
 2. `supabase/migrations/20260929000200_access_and_activity.sql`: policies, safe projections, lifecycle triggers, and follow RPCs. Also backfills profiles and watchlists for existing Auth users.
-
 3. `supabase/migrations/20260929000300_movie_request_limits.sql`: private request counters and a service-role-only quota RPC for movie search and selection.
+4. `supabase/migrations/20260930000100_remove_comparison_ranking.sql`: removes comparison buckets and positions.
+5. `supabase/migrations/20260930000200_remove_decimal_score.sql` and `20260930000300_decimal_score_only.sql`: switch the rating to a star scale and back; the net result is the decimal `score` as the only rating.
+6. `supabase/migrations/20260930000400_occasional_limit_cleanup.sql`: the quota RPC deletes day-old counters on about 1% of calls instead of every call.
 
-Selection uses `POST /api/movies/cache` with only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
+`POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
 Each migration is transactional and intended to run once through migration tracking. The first leaves tables inaccessible to clients until the second completes. SQL intentionally fails on conflicting existing tables instead of silently overwriting a different schema. Use forward migrations for later changes; rolling these tables back would destroy application data.
 

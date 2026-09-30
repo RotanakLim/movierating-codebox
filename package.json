@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:db": "node scripts/test-database.mjs"
+    "test:db": "node scripts/test-database.mjs",
+    "db:types": "supabase gen types typescript --local > src/lib/supabase/database.types.ts && prettier --write src/lib/supabase/database.types.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
@@ -38,6 +39,7 @@
     "eslint": "^9.0.0",
     "eslint-config-next": "15.5.26",
     "prettier": "^3.0.0",
+    "supabase": "2.118.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5.9.0",
     "vitest": "4.1.11"
