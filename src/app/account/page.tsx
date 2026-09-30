@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { requireUser } from "@/lib/auth/user";
-import { signOut } from "@/app/auth/actions";
+import { SignOutButton } from "@/components/sign-out-button";
 export const metadata: Metadata = {
   title: "Your account",
   robots: { index: false, follow: false },
@@ -35,11 +35,7 @@ export default async function AccountPage() {
           <Link className="button-secondary" href="/auth/update-password">
             Set or change password
           </Link>
-          <form action={signOut}>
-            <button className="button-secondary" type="submit">
-              Sign out
-            </button>
-          </form>
+          <SignOutButton />
         </div>
       </div>
     </section>

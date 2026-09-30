@@ -10,10 +10,12 @@ import { readCachedMovie } from "@/lib/supabase/movie-cache";
 import { MoviePoster } from "@/components/movies/poster";
 import { safeNext } from "@/lib/auth/redirect";
 import type { MovieDetails } from "@/lib/movies/types";
+import { EntryComposer } from "@/components/entries/entry-composer";
+import { loadViewerEntries } from "@/lib/entries/load";
 
 type PageProps = {
   params: Promise<{ tmdbId: string }>;
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; compose?: string }>;
 };
 type MovieLookup =
   | { status: "found"; movie: MovieDetails }
@@ -58,7 +60,7 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
   const { tmdbId } = await params;
   const result = await loadMovie(tmdbId);
   if (result.status === "missing") notFound();
-  const { from } = await searchParams;
+  const { from, compose } = await searchParams;
   const source = safeNext(from, "/discover");
   const back = source.split("?")[0] === "/discover" ? source : "/discover";
   if (result.status === "unavailable") {
@@ -82,6 +84,7 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
     );
   }
   const { movie } = result;
+  const { viewer, entries } = await loadViewerEntries(movie.id);
   return (
     <section className="py-10 sm:py-14">
       <Link
@@ -146,9 +149,13 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
           <p className="mt-3 whitespace-pre-line leading-relaxed text-muted">
             {movie.overview ?? "A synopsis isn't available for this movie yet."}
           </p>
-          <p className="mt-9 border-t border-line pt-5 text-sm text-muted">
-            Personal ratings and reviews are coming next.
-          </p>
+          <EntryComposer
+            movieId={movie.id}
+            movieTitle={movie.title}
+            viewer={viewer}
+            entries={entries}
+            compose={compose === "rate" || compose === "log" ? compose : null}
+          />
           <a
             href={`https://www.themoviedb.org/movie/${movie.id}`}
             className="mt-5 inline-block text-sm text-accent underline"

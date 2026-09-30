@@ -2,7 +2,7 @@
 
 - Stack: Next.js 15 App Router, TypeScript, Tailwind 4, Supabase (Postgres/Auth/Storage) via @supabase/ssr, TMDB, Vercel.
 - The ONLY rating system is a decimal score 0.0–10.0 with one decimal place (e.g. 1.0, 5.0, 9.5), stored as
-  `score numeric(3,1)` (NULL = unrated). No stars/half-stars, no buckets, no comparisons, no manual ranking
+  `entries.score` (NULL = unrated; the database rejects extra decimals). No stars/half-stars, no buckets, no comparisons, no manual ranking
   positions. Never reintroduce them.
 - SPEC.md is the product source of truth; README.md and DATABASE.md must stay in sync with the code.
 - Database changes are NEW forward migrations in supabase/migrations/ (timestamped). Never edit a migration that
