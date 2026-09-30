@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getPublicConfig } from "@/lib/env";
 import { safeNext } from "@/lib/auth/redirect";
+import { destinationAfterAuth } from "@/lib/onboarding/profile";
 import type { AuthState } from "@/lib/auth/types";
 
 const unavailable = {
@@ -38,6 +39,7 @@ export async function signIn(
   if (!getPublicConfig()) return unavailable;
   if (!validEmail(email(data)) || !text(data, "password"))
     return { error: "Enter your email and password." };
+  let destination: string;
   try {
     const supabase = await createClient();
     const { error } = await supabase.auth.signInWithPassword({
@@ -50,11 +52,16 @@ export async function signIn(
           ? "Too many attempts. Please wait and try again."
           : "Unable to sign in. Check your credentials and confirm your email.",
       };
+    // Accounts without a username finish onboarding first, then continue to next.
+    destination = await destinationAfterAuth(
+      safeNext(data.get("next")),
+      supabase,
+    );
   } catch {
     return networkError;
   }
   revalidatePath("/", "layout");
-  redirect(safeNext(data.get("next")));
+  redirect(destination);
 }
 
 export async function signUp(

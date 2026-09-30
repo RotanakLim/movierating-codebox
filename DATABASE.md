@@ -33,6 +33,7 @@ Files:
 4. `supabase/migrations/20260930000100_remove_comparison_ranking.sql`: removes comparison buckets and positions.
 5. `supabase/migrations/20260930000200_remove_decimal_score.sql` and `20260930000300_decimal_score_only.sql`: switch the rating to a star scale and back; the net result is the decimal `score` as the only rating.
 6. `supabase/migrations/20260930000400_occasional_limit_cleanup.sql`: the quota RPC deletes day-old counters on about 1% of calls instead of every call.
+7. `supabase/migrations/20260930000500_onboarding.sql`: `codebox_private.valid_username()` (the single source of username rules, now used by `users_username_format`), the `username_status()` availability RPC, owner-only `user_preferences` (favorite genres) and `user_favorite_movies` (up to five), and the `set_favorite_movies()` RPC.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -40,16 +41,18 @@ Each migration is transactional and intended to run once through migration track
 
 ## Schema decisions
 
-| Table        | Meaning                                                                                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `users`      | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                  |
-| `movies`     | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                           |
-| `rankings`   | An editable watch/review entry: user_id, movie_id, optional score, note, watched_date; plus spoiler flag, watched flag, timezone, version, timestamps.                    |
-| `follows`    | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship. |
-| `lists`      | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                       |
-| `list_items` | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                 |
-| `activity`   | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                               |
-| `blocks`     | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                        |
+| Table                  | Meaning                                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`                | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                  |
+| `movies`               | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                           |
+| `rankings`             | An editable watch/review entry: user_id, movie_id, optional score, note, watched_date; plus spoiler flag, watched flag, timezone, version, timestamps.                    |
+| `follows`              | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship. |
+| `lists`                | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                       |
+| `list_items`           | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                 |
+| `activity`             | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                               |
+| `user_preferences`     | Owner-only onboarding/settings preferences: `favorite_genre_ids` (TMDB movie genre IDs, deduplicated and validated).                                                      |
+| `user_favorite_movies` | Owner-only, at most five per user, each referencing a cached `movies` row; shown in the order picked. Never creates rankings, activity, or watch logs.                    |
+| `blocks`               | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                        |
 
 ### Entries, repeat watches, and scores
 
@@ -80,6 +83,7 @@ The current-rating views are viewer-filtered for blocks. A future global average
 - Guests: read movies, accessible profiles/collections/lists, public identities/reviews, and permitted activity. No mutation grants.
 - Authenticated users: select an immutable username, update their own avatar/profile/privacy; create/edit/delete **only their own** rankings and custom lists; manage only their own list items and blocks.
 - Ranking/list/social contributions additionally require a confirmed email and an onboarded username. The check reads `auth.users`, not editable user metadata.
+- Onboarding: `username_status(candidate)` (signed-in only) returns `available`, `taken`, `invalid`, or `reserved`; it runs with definer rights so private or blocking accounts' names still count as taken. A username can be claimed once (the update must match `username is null`); duplicates fail with `23505`, reserved or malformed names with `23514`. `set_favorite_movies(movie_ids)` atomically replaces the caller's favorites under RLS. Preferences are written update-then-insert, because clients have no `UPDATE` grant on `user_id` and PostgREST upserts set every column.
 - Clients cannot mutate movie cache data, feed events, author IDs, creation timestamps, or follow status directly.
 - `service_role`: trusted database access, bypassing RLS as Supabase intends. Only server-side TMDB cache refresh and future administrative operations should use it. Never put it in `NEXT_PUBLIC_*`.
 
@@ -167,6 +171,6 @@ npm run test:db
 
 The test runner applies all migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
 
-Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, default watchlists, list ownership, history selection, feed updates/deletion, and Auth cascade cleanup. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
+Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, username rules/availability/duplicates, owner-only preferences and the five-favorite limit, default watchlists, list ownership, history selection, feed updates/deletion, and Auth cascade cleanup. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
 
-This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Avatar bucket policies and image processing, username onboarding UI, moderation/suspension, comments/likes, notifications, taste calculations, account-deletion orchestration remain subsequent implementation work. Do not treat these core migrations as completion of every feature in SPEC.md.
+This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Avatar bucket policies and image processing, profile pages and settings, moderation/suspension, comments/likes, notifications, taste calculations, account-deletion orchestration remain subsequent implementation work. Do not treat these core migrations as completion of every feature in SPEC.md.

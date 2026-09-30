@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Clapperboard } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ProfileLink } from "@/components/profile-link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -54,6 +55,7 @@ export default function RootLayout({
               >
                 Discover
               </Link>
+              <ProfileLink />
               <Link
                 href="/account"
                 className="text-sm text-muted hover:text-ink"
