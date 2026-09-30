@@ -82,7 +82,7 @@ References: [TMDB application authentication](https://developer.themoviedb.org/d
 
 ### Apply migrations to my hosted project
 
-Run these yourself; nothing in this repository connects to your hosted project. The CLI is a pinned dev dependency, so use `npx`.
+Run these yourself; nothing in this repository connects to your hosted project. The Supabase CLI is not a project dependency; `npx supabase` downloads it on first use.
 
 1. `npx supabase login` (opens a browser to create an access token).
 2. `npx supabase link --project-ref <your-project-ref>` — the ref is the subdomain in your project URL (`https://<project-ref>.supabase.co`). You will be asked for the database password.
