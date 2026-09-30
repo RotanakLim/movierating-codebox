@@ -846,7 +846,7 @@ export type Database = {
         Returns: undefined;
       };
       request_account_deletion: {
-        Args: Record<PropertyKey, never>;
+        Args: { confirmation: string };
         Returns: undefined;
       };
       request_follow: {

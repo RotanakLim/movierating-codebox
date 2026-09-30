@@ -16,7 +16,9 @@ export async function lastAuthenticatedAt(
   const { data, error } = await supabase.auth.getClaims();
   if (error || !data) return null;
   const times = (data.claims.amr ?? []).flatMap((entry) =>
-    typeof entry === "object" && typeof entry.timestamp === "number"
+    entry !== null &&
+    typeof entry === "object" &&
+    typeof entry.timestamp === "number"
       ? [entry.timestamp]
       : [],
   );

@@ -47,10 +47,33 @@ async function readBody(request: NextRequest) {
   return new Uint8Array(Buffer.concat(chunks));
 }
 
+type Bucket = ReturnType<Session["supabase"]["storage"]["from"]>;
+type Session = Extract<
+  Awaited<ReturnType<typeof requireContributor>>,
+  { ok: true }
+>;
+
+/**
+ * Best effort: delete every file in the user's folder except `keep`. This also
+ * sweeps files orphaned by concurrent uploads, and keeps the folder under the
+ * database's three-file cap. Leftovers are harmless and go with the account.
+ */
+async function removeOtherFiles(
+  bucket: Bucket,
+  userId: string,
+  keep: string[],
+) {
+  const { data } = await bucket.list(userId, { limit: 100 });
+  const stale = (data ?? [])
+    .map((file) => `${userId}/${file.name}`)
+    .filter((path) => !keep.includes(path));
+  if (stale.length) await bucket.remove(stale);
+}
+
 /**
  * Upload a new avatar: the raw image is the request body. It is validated and
  * re-encoded here, stored with the user's own session under `<user id>/`, and
- * the previous file is removed.
+ * every other file in that folder is then removed.
  */
 export async function POST(request: NextRequest) {
   const { session, response } = await authorize(request);
@@ -74,6 +97,11 @@ export async function POST(request: NextRequest) {
     .single();
   const path = `${user.id}/${crypto.randomUUID()}.webp`;
   const bucket = supabase.storage.from("avatars");
+  await removeOtherFiles(
+    bucket,
+    user.id,
+    current?.avatar ? [current.avatar] : [],
+  );
   const { error: uploadError } = await bucket.upload(path, image, {
     contentType: "image/webp",
     cacheControl: "31536000",
@@ -89,9 +117,7 @@ export async function POST(request: NextRequest) {
     await bucket.remove([path]);
     return fail(503, "We couldn't save that image. Please try again.");
   }
-  // Best effort: a leftover old file is harmless and removed with the account.
-  if (current?.avatar && current.avatar !== path)
-    await bucket.remove([current.avatar]);
+  await removeOtherFiles(bucket, user.id, [path]);
   revalidatePath("/", "layout");
   return NextResponse.json({ avatar: avatarUrl(path) }, { headers });
 }
@@ -101,18 +127,12 @@ export async function DELETE(request: NextRequest) {
   const { session, response } = await authorize(request);
   if (!session) return response;
   const { supabase, user } = session;
-  const { data: current } = await supabase
-    .from("users")
-    .select("avatar")
-    .eq("id", user.id)
-    .single();
   const { error } = await supabase
     .from("users")
     .update({ avatar: null })
     .eq("id", user.id);
   if (error) return fail(503, "We couldn't remove your avatar. Try again.");
-  if (current?.avatar)
-    await supabase.storage.from("avatars").remove([current.avatar]);
+  await removeOtherFiles(supabase.storage.from("avatars"), user.id, []);
   revalidatePath("/", "layout");
   return NextResponse.json({ avatar: null }, { headers });
 }

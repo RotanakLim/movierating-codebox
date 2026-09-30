@@ -43,13 +43,18 @@ Files:
     - `reports`: user reports, one open report per reporter and target. Clients can insert but never read them; there is no admin queue yet.
     - A diary index on watched entries.
 11. `supabase/migrations/20260930000900_settings.sql`:
-    - The `avatars` Storage bucket: public reads by URL, 2 MB, JPEG/PNG/WebP. Policies on `storage.objects` let a signed-in user list, add and remove files only directly inside `<their user id>/`. There is no public SELECT policy, so nobody can list other people's files. The app re-encodes every upload to WebP on the server first.
+    - The `avatars` Storage bucket: public reads by URL, 2 MB, JPEG/PNG/WebP. Policies on `storage.objects` let a signed-in user list and remove files only in `<their user id>/`, and add files only directly inside it. There is no public SELECT policy, so nobody can list other people's files. The app re-encodes every upload to WebP on the server first.
     - An `avatar` scope in the request-limit RPC: 10 uploads per user per hour.
     - `user_preferences.theme`: `system`, `light` or `dark`; NULL means never chosen. It is owner-only like the rest of the row.
     - `reports.reporter_id` and `target_user_id` become nullable with `on delete set null`, so reports outlive a deleted account without identifying it.
     - Account deletion:
       - `request_account_deletion()` is signed-in only and idempotent. It queues the user in the private `codebox_private.account_deletions` table, bans the auth user and deletes its sessions, redacts report details involving the user, and deletes the profile row. That delete cascades entries (and their activity), follows, blocks, lists and items, favorites and preferences.
       - `pending_account_deletions()` and `record_account_deletion_attempt(user, failure)` are service-role only; the server's retryable cleanup uses them.
+12. `supabase/migrations/20260930001000_settings_hardening.sql`:
+    - `request_account_deletion(confirmation)` replaces the no-argument version. The database now enforces the app's safeguards: a sign-in within the last 10 minutes (the newest `timestamp` in the token's `amr` claim, which refreshes keep unchanged), otherwise `42501`, and the account's own username as confirmation (case and surrounding spaces ignored), otherwise `22023`. A repeat after deletion is still harmless.
+    - `pending_account_deletions()` returns the least-attempted rows first, then the oldest.
+    - Avatar uploads: the bucket accepts only WebP (what the server stores). Direct uploads must be named `<uid>/<uuid>.webp`, need `can_contribute()` (verified email, username, account not deleted), and are capped at three files per user by `codebox_private.avatar_upload_allowed()`.
+    - A `reauth` request-limit scope: 5 password re-checks per user per 15 minutes.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -119,8 +124,8 @@ Scores and reviews stay visible through `public_reviews` in every mode, except t
 - Entry/list/social contributions additionally require a confirmed email and an onboarded username. The check reads `auth.users`, not editable user metadata.
 - Onboarding: `username_status(candidate)` (signed-in only) returns `available`, `taken`, `invalid`, or `reserved`; it runs with definer rights so private or blocking accounts' names still count as taken. A username can be claimed once (the update must match `username is null`); duplicates fail with `23505`, reserved or malformed names with `23514`. `set_favorite_movies(movie_ids)` atomically replaces the caller's favorites under RLS. Preferences are written update-then-insert, because clients have no `UPDATE` grant on `user_id` and PostgREST upserts set every column.
 - Clients cannot mutate movie cache data, feed events, author IDs, creation timestamps, or follow status directly.
-- Avatars: users upload through the app's `/api/avatar` route with their own session. Storage policies allow writes only to `avatars/<own id>/<file>`, and `users.avatar` must point into the owner's folder.
-- Account deletion: a user can only delete their own account, through `request_account_deletion()`. The queue table is unreadable by clients.
+- Avatars: users upload through the app's `/api/avatar` route with their own session. Storage policies allow writes only as `avatars/<own id>/<uuid>.webp`, by contributors, at most three files at a time, and `users.avatar` must point into the owner's folder. A direct upload can't skip those rules, but its bytes aren't re-encoded, so only the app's route produces avatars.
+- Account deletion: a user can only delete their own account, through `request_account_deletion(confirmation)`, which requires a recent sign-in and their username. The queue table is unreadable by clients.
 - `service_role`: trusted database access, bypassing RLS as Supabase intends. Only the server-side TMDB cache, request limits, account-deletion cleanup and future administrative operations use it. Never put it in `NEXT_PUBLIC_*`.
 
 The policies use both `USING` and `WITH CHECK` for ranking updates. Column grants separately prevent ownership reassignment. RLS is enabled on **every** new table. Grants inherited from Supabase defaults are explicitly revoked before permitted operations are granted back.
@@ -201,12 +206,12 @@ For a Community feed, include only `rated`/`reviewed` events. For Following, fil
 
 ### Account deletion
 
-1. **Immediately, in one transaction** (`request_account_deletion()`):
+1. **Immediately, in one transaction** (`request_account_deletion(confirmation)`, after checking the recent sign-in and the typed username):
    - Sign-in is disabled (a long ban) and every session is deleted, so refresh tokens stop working.
    - The profile and everything that cascades from it disappear.
    - Reports stay but lose the person's ID and details.
 2. **Then, with the service role** (`src/lib/supabase/account-cleanup.ts`): delete every file in `avatars/<id>/`, then the auth user (404 counts as done). Record each attempt, with a short non-identifying error on failure.
-3. **Retries**: unfinished rows are retried by `GET /api/cron/account-deletions` (Vercel Cron with `CRON_SECRET`). Each step is idempotent, and nothing in the retry path can recreate the profile. The auth signup trigger only runs on insert, and clients have no INSERT grant on `users`. Completed rows keep only the user ID, timestamps and attempt count.
+3. **Retries**: unfinished rows are retried, least-attempted first, by `GET /api/cron/account-deletions` (Vercel Cron with `CRON_SECRET`). Each step is idempotent, and nothing in the retry path can recreate the profile. The auth signup trigger only runs on insert, and clients have no INSERT grant on `users`. Completed rows keep only the user ID, timestamps and attempt count.
 
 ## Tests and scope
 
@@ -216,6 +221,6 @@ npm run test:db
 
 The test runner applies all migrations to an isolated PGlite PostgreSQL engine and executes real SQL under `anon`, `authenticated`, and trusted roles. Only Supabase's auth schema/identity function and a minimal Storage schema (`storage.buckets`, `storage.objects` with RLS, `storage.foldername()`) are emulated. It needs no keys, network database, Supabase CLI, or Docker. The fixture is `supabase/tests/core.sql`; it creates synthetic users and is **not** a production migration or a pgTAP suite.
 
-Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, username rules/availability/duplicates, owner-only preferences and the five-favorite limit, default watchlists, list ownership, history selection, feed updates/deletion, Auth cascade cleanup, avatar storage policies, the theme preference, and account deletion (immediate removal, session ending, report anonymisation, queue privacy and retry bookkeeping). A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
+Coverage includes ownership attacks, direct-table writes, verified-email gating, projection leaks, profile visibility, follow approval/cooldown, blocking, constrained scores/dates, username rules/availability/duplicates, owner-only preferences and the five-favorite limit, default watchlists, list ownership, history selection, feed updates/deletion, Auth cascade cleanup, avatar storage policies, the theme preference, and account deletion (recent sign-in and confirmation enforced in SQL, immediate removal, session ending, report anonymisation, queue privacy, ordering and retry bookkeeping). The harness stubs `auth.jwt()` the same way Supabase defines it. A passing local engine test does not verify a hosted project's PostgREST exposure, API grants outside these migrations, Auth configuration, or concurrent multi-connection scheduling. Inspect Supabase security advisors and smoke-test the APIs after deploying.
 
 This change is a database foundation. Movie search and selection are wired to the minimal movie cache; ranking and social forms remain future work. TMDB ingestion excludes adult movies. Release-date validation for future ranking writes remains to be implemented because this minimal cache does not store complete release metadata. Moderation/suspension, comments/likes, notifications and taste calculations remain subsequent implementation work. Comment tombstones for deleted accounts will be needed once comments exist. Do not treat these core migrations as completion of every feature in SPEC.md.

@@ -1,7 +1,8 @@
 import "server-only";
 import sharp from "sharp";
+import { AVATAR_MAX_BYTES } from "./avatar-limits";
 
-export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+export { AVATAR_MAX_BYTES };
 export const AVATAR_SIZE = 256;
 
 export class AvatarError extends Error {
@@ -47,7 +48,7 @@ export async function processAvatar(bytes: Uint8Array): Promise<Buffer> {
   if (!sniffed) throw new AvatarError(415, FORMAT_MESSAGE);
   try {
     const image = sharp(bytes, {
-      limitInputPixels: 40_000_000,
+      limitInputPixels: 4096 * 4096,
       failOn: "error",
       animated: false,
     });

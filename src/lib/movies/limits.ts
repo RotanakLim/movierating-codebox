@@ -4,7 +4,7 @@ import { isIP } from "node:net";
 import { consumeMovieLimit } from "@/lib/supabase/movie-cache";
 import { MovieError } from "./errors";
 export async function limitMovieRequest(
-  scope: "search" | "selection" | "avatar",
+  scope: "search" | "selection" | "avatar" | "reauth",
   headers: Pick<Headers, "get">,
   userId?: string,
 ) {

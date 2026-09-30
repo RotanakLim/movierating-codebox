@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   upload: vi.fn(),
   remove: vi.fn(),
+  list: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -37,6 +38,7 @@ const supabase = {
     from: (bucket: string) => ({
       upload: (...args: unknown[]) => mocks.upload(bucket, ...args),
       remove: (paths: string[]) => mocks.remove(bucket, paths),
+      list: (folder: string) => mocks.list(bucket, folder),
     }),
   },
 };
@@ -71,7 +73,22 @@ beforeEach(() => {
   });
   mocks.update.mockResolvedValue({ error: null });
   mocks.upload.mockResolvedValue({ error: null });
-  mocks.remove.mockResolvedValue({ error: null });
+  // A tiny in-memory bucket: uploads add files, removes delete them.
+  const files = new Set([`${USER}/old.webp`, `${USER}/orphan.webp`]);
+  mocks.upload.mockImplementation(async (_bucket, path: string) => {
+    files.add(path);
+    return { error: null };
+  });
+  mocks.remove.mockImplementation(async (_bucket, paths: string[]) => {
+    paths.forEach((path) => files.delete(path));
+    return { error: null };
+  });
+  mocks.list.mockImplementation(async (_bucket, folder: string) => ({
+    data: [...files]
+      .filter((path) => path.startsWith(`${folder}/`))
+      .map((path) => ({ name: path.slice(folder.length + 1) })),
+    error: null,
+  }));
 });
 
 describe("POST /api/avatar", () => {
@@ -88,7 +105,7 @@ describe("POST /api/avatar", () => {
     expect(mocks.upload).not.toHaveBeenCalled();
   });
 
-  it("stores a re-encoded WebP in the user's folder and removes the old one", async () => {
+  it("stores a re-encoded WebP and leaves only it in the user's folder", async () => {
     const response = await POST(request("POST", new Uint8Array(await png())));
     expect(response.status).toBe(200);
     const [bucket, path, bytes, options] = mocks.upload.mock.calls[0];
@@ -97,7 +114,15 @@ describe("POST /api/avatar", () => {
     expect((await sharp(bytes).metadata()).format).toBe("webp");
     expect(options).toMatchObject({ contentType: "image/webp", upsert: false });
     expect(mocks.update).toHaveBeenCalledWith({ avatar: path }, USER);
-    expect(mocks.remove).toHaveBeenCalledWith("avatars", [`${USER}/old.webp`]);
+    // An orphan from an earlier concurrent upload is swept before uploading
+    // (keeping the folder under the three-file cap); the old avatar after saving.
+    expect(mocks.remove.mock.calls).toEqual([
+      ["avatars", [`${USER}/orphan.webp`]],
+      ["avatars", [`${USER}/old.webp`]],
+    ]);
+    expect((await mocks.list("avatars", USER)).data).toEqual([
+      { name: path.slice(USER.length + 1) },
+    ]);
     expect(await response.json()).toEqual({
       avatar: `https://db.codebox.test/storage/v1/object/public/avatars/${path}`,
     });
@@ -125,8 +150,13 @@ describe("POST /api/avatar", () => {
     const response = await POST(request("POST", new Uint8Array(await png())));
     expect(response.status).toBe(503);
     const path = mocks.upload.mock.calls[0][1];
-    expect(mocks.remove).toHaveBeenCalledWith("avatars", [path]);
-    expect(mocks.remove).toHaveBeenCalledTimes(1);
+    expect(mocks.remove).toHaveBeenLastCalledWith("avatars", [path]);
+    // The current avatar is never touched when saving fails.
+    expect(
+      (await mocks.list("avatars", USER)).data.map(
+        (f: { name: string }) => f.name,
+      ),
+    ).toEqual(["old.webp"]);
   });
 });
 
@@ -135,6 +165,9 @@ describe("DELETE /api/avatar", () => {
     const response = await DELETE(request("DELETE"));
     expect(response.status).toBe(200);
     expect(mocks.update).toHaveBeenCalledWith({ avatar: null }, USER);
-    expect(mocks.remove).toHaveBeenCalledWith("avatars", [`${USER}/old.webp`]);
+    expect(mocks.remove).toHaveBeenCalledWith("avatars", [
+      `${USER}/old.webp`,
+      `${USER}/orphan.webp`,
+    ]);
   });
 });

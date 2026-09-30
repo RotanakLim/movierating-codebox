@@ -16,8 +16,12 @@ try {
     create function auth.uid() returns uuid language sql stable as $$
       select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
     $$;
+    create function auth.jwt() returns jsonb language sql stable as $$
+      select coalesce(nullif(current_setting('request.jwt.claim', true), ''),
+        nullif(current_setting('request.jwt.claims', true), ''))::jsonb;
+    $$;
     grant usage on schema auth, public to anon, authenticated, service_role;
-    grant execute on function auth.uid() to anon, authenticated, service_role;
+    grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
     -- Reproduce projects with permissive default grants; migrations must revoke them.
     alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
     insert into auth.users values ('00000000-0000-0000-0000-000000000099', now());

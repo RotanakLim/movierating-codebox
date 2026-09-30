@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ClearDrafts } from "@/components/clear-drafts";
 
 export const metadata: Metadata = {
   title: "Account deleted",
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
 export default function AccountDeletedPage() {
   return (
     <section className="mx-auto max-w-2xl py-16">
+      <ClearDrafts />
       <h1 className="font-display text-4xl">Your account has been deleted.</h1>
       <p className="mt-6 leading-relaxed text-muted">
         You&apos;ve been signed out everywhere. Your profile, ratings, reviews,
