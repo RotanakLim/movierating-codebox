@@ -6,6 +6,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signInWithGoogle } from "@/app/auth/actions";
 import {
@@ -257,9 +258,11 @@ export function ThemeForm({ account }: { account: Theme | null }) {
 function Reauthenticate({
   hasPassword,
   hasGoogle,
+  setPasswordFirst,
 }: {
   hasPassword: boolean;
   hasGoogle: boolean;
+  setPasswordFirst: boolean;
 }) {
   const router = useRouter();
   const [password, setPassword] = useState("");
@@ -274,6 +277,19 @@ function Reauthenticate({
       <p className="text-sm text-muted">
         For your security, confirm it&apos;s you before deleting your account.
       </p>
+      {setPasswordFirst && (
+        <p className="text-sm text-muted">
+          Google sign-in is turned off on this site. If you haven&apos;t set a
+          password for your account yet,{" "}
+          <Link
+            href={`/auth/update-password?next=${encodeURIComponent("/settings")}`}
+            className="text-accent underline"
+          >
+            set one first
+          </Link>
+          , then confirm with it here.
+        </p>
+      )}
       {hasPassword && (
         <form
           onSubmit={(event) => {
@@ -328,11 +344,14 @@ export function DeleteAccount({
   recent,
   hasPassword,
   hasGoogle,
+  setPasswordFirst = false,
 }: {
   username: string;
   recent: boolean;
   hasPassword: boolean;
   hasGoogle: boolean;
+  /** Google-only account while Google is off: link to setting a password. */
+  setPasswordFirst?: boolean;
 }) {
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -352,7 +371,11 @@ export function DeleteAccount({
       </p>
       <div className="mt-5">
         {!recent ? (
-          <Reauthenticate hasPassword={hasPassword} hasGoogle={hasGoogle} />
+          <Reauthenticate
+            hasPassword={hasPassword}
+            hasGoogle={hasGoogle}
+            setPasswordFirst={setPasswordFirst}
+          />
         ) : (
           <form
             onSubmit={(event) => {

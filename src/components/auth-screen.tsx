@@ -50,7 +50,7 @@ export function AuthScreen({
         mode={mode}
         next={next}
         configured={configured}
-        google={googleAuthEnabled()}
+        googleEnabled={googleAuthEnabled()}
       />
     </div>
   );

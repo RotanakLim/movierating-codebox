@@ -132,7 +132,7 @@ describe("auth actions", () => {
   it("refuses Google sign-in while it's switched off", async () => {
     google.enabled = false;
     expect((await signInWithGoogle({}, form({ next: "/account" }))).error).toBe(
-      "Google sign-in isn't available. Use your email instead.",
+      "Google sign-in is unavailable on this site. Use your email and password instead.",
     );
     expect(auth.signInWithOAuth).not.toHaveBeenCalled();
   });

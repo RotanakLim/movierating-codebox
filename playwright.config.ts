@@ -14,6 +14,8 @@ export default defineConfig({
       RATE_LIMIT_SECRET: "",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
       NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:3100",
+      // Pin Google off so the "no Google button" check can't pick up a local value.
+      GOOGLE_AUTH_ENABLED: "",
     },
   },
 });

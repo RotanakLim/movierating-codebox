@@ -1,6 +1,6 @@
 # CodeBox Movies
 
-Next.js **15.5.26**, TypeScript, Tailwind CSS 4, and Supabase email/password + Google authentication. Includes movie discovery, posters, basic detail pages, and a secure movie-cache endpoint from `SPEC.md`. The remaining movie platform features are still in progress. Google OAuth is now in scope per the latest request.
+Next.js **15.5.26**, TypeScript, Tailwind CSS 4, and Supabase email/password authentication, with optional Google sign-in. Includes movie discovery, posters, basic detail pages, and a secure movie-cache endpoint from `SPEC.md`. The remaining movie platform features are still in progress. Google OAuth is now in scope per the latest request.
 
 ## Run locally
 
@@ -27,12 +27,13 @@ The public key is intentionally browser-safe when database RLS is properly confi
 
 Add these **server-only** values to `.env.local` and your Vercel environment:
 
-| Variable                     | Value                                                            |
-| ---------------------------- | ---------------------------------------------------------------- |
-| `TMDB_API_READ_ACCESS_TOKEN` | TMDB API Read Access Token, not the shorter API key              |
-| `SUPABASE_SERVICE_ROLE_KEY`  | Supabase service-role key for the same project as the public URL |
-| `RATE_LIMIT_SECRET`          | At least 32 random bytes: generate with `openssl rand -hex 32`   |
-| `CRON_SECRET`                | At least 32 random characters (`openssl rand -hex 32`)           |
+| Variable                     | Value                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `TMDB_API_READ_ACCESS_TOKEN` | TMDB API Read Access Token, not the shorter API key                      |
+| `SUPABASE_SERVICE_ROLE_KEY`  | Supabase service-role key for the same project as the public URL         |
+| `RATE_LIMIT_SECRET`          | At least 32 random bytes: generate with `openssl rand -hex 32`           |
+| `CRON_SECRET`                | At least 32 random characters (`openssl rand -hex 32`)                   |
+| `GOOGLE_AUTH_ENABLED`        | Optional. `true` shows Google sign-in; see [Google setup](#google-setup) |
 
 Never prefix any of these with `NEXT_PUBLIC_`. `RATE_LIMIT_SECRET` is only an HMAC key for request-limit counters: it must be at least 64 characters and must not reuse another key. Rotating it just resets current quotas. Apply all SQL migrations in timestamp order; see [DATABASE.md](DATABASE.md). Search requires TMDB plus Supabase configuration because request quotas are persisted in the database. Restart after configuring credentials. Missing configuration produces a recoverable setup message.
 
@@ -105,6 +106,8 @@ The token-hash confirmation route allows email links to work across browsers. Re
 
 Google sign-in is **optional** and off by default: the sign-in and sign-up pages show no Google button, and the Google action refuses, until you set `GOOGLE_AUTH_ENABLED=true` (a server-only environment variable; redeploy after changing it). Email and password sign-in works without it. Turn it on only after the steps below are done; otherwise a Google button would lead to Supabase's "provider is not enabled" error.
 
+The variable only controls the app's own button and action. The real switch is the Google provider in **Supabase → Authentication → Providers**: while it's enabled there, anyone could start Google sign-in against Supabase directly. To turn Google off, disable the provider in Supabase **and** unset the variable. Accounts that signed up with Google can then still delete their account: Settings asks for a password and links them to set one first.
+
 1. In Google Cloud / Google Auth Platform, configure the consent screen, audience, and test users if the app is in testing mode. Request only basic OpenID/email/profile access.
 2. Create an OAuth client of type **Web application**.
 3. Add the app's development and deployed origins under Authorized JavaScript origins.
@@ -143,8 +146,8 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
   - Opening one goes through `/notifications/[id]`, which marks it read and re-checks access at that moment. If the comment, review, follow or account is gone, hidden or blocked, it shows "This content is no longer available." instead of the target.
 
 - Theme: the theme follows the system until you pick light or dark; the choice is stored in this browser (read by an inline script before first paint, so there's no flash) and, once signed in, in your account.
-- `/auth/sign-in`: email/password and Google sign-in.
-- `/auth/sign-up`: email signup with password confirmation and Google signup.
+- `/auth/sign-in`: email/password sign-in, plus Google when `GOOGLE_AUTH_ENABLED=true`.
+- `/auth/sign-up`: email signup with password confirmation, plus Google when `GOOGLE_AUTH_ENABLED=true`.
 - `/auth/verify`: resend email confirmation.
 - `/auth/forgot-password`: generic password-reset request response.
 - `/auth/confirm`: verification/recovery token exchange; uses the templates above.
@@ -192,7 +195,7 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
   - Incoming follow requests (accept or decline), followers (remove) and blocked accounts (unblock).
   - Account deletion (see below).
 - `POST /api/avatar` (and `DELETE` to remove): the raw image is the request body. It checks the site origin, a verified signed-in user with a username, and a limit of 10 uploads per hour. The body is capped at 2 MB while streaming. JPEG, PNG and WebP are accepted by their bytes, not the file name or browser MIME type (SVG, GIF and anything else are refused). `sharp` decodes the first frame only, with a pixel limit, then re-encodes to a 256×256 WebP with metadata such as EXIF/GPS removed. The file is stored with the user's own session under `avatars/<user id>/<random uuid>.webp`; every other file in that folder is then deleted, which also clears files orphaned by two uploads at once. The bucket is public for reads by URL and stores only WebP. Only the owner can list, add or remove files in their folder. Direct uploads that skip this route are held to the same shape by the database: `<uuid>.webp` names only, a verified account with a username, and at most three files.
-- Account deletion requires a sign-in within the last 10 minutes, taken from the session's `amr` claim, which token refreshes don't change. Otherwise Settings asks for the password again, or Google for Google accounts. Password re-checks are limited to 5 per account per 15 minutes. The user must also type their username. `request_account_deletion(confirmation)` checks both again (the token's `amr` sign-in time and the typed username), so calling the RPC directly can't skip them. It then, in one transaction:
+- Account deletion requires a sign-in within the last 10 minutes, taken from the session's `amr` claim, which token refreshes don't change. Otherwise Settings asks for the password again, or Google for Google accounts while Google sign-in is switched on (with it off, Google-only accounts are linked to setting a password first). Password re-checks are limited to 5 per account per 15 minutes. The user must also type their username. `request_account_deletion(confirmation)` checks both again (the token's `amr` sign-in time and the typed username), so calling the RPC directly can't skip them. It then, in one transaction:
   - bans the auth user and ends every session;
   - deletes the profile and everything that cascades from it;
   - anonymises reports;
@@ -247,7 +250,7 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
 **Done**
 
 - Accounts:
-  - Email/password and Google sign-in, verification, password reset.
+  - Email/password sign-in (Google optional), verification, password reset.
   - Onboarding: username, favorite genres and movies.
   - Settings: profile, avatar, theme, privacy, blocked accounts.
   - Account deletion with a retried cleanup.

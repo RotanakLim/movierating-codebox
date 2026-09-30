@@ -27,6 +27,17 @@ describe("Google sign-in toggle", () => {
     vi.stubEnv("GOOGLE_AUTH_ENABLED", " TRUE ");
     expect(googleAuthEnabled()).toBe(true);
   });
+  it.each(["1", "yes", "on", "enabled", "truee", "0", "false"])(
+    "treats %j as off (only the word true turns it on)",
+    (value) => {
+      vi.stubEnv("GOOGLE_AUTH_ENABLED", value);
+      expect(googleAuthEnabled()).toBe(false);
+    },
+  );
+  it("is off when the variable is missing", () => {
+    vi.stubEnv("GOOGLE_AUTH_ENABLED", undefined);
+    expect(googleAuthEnabled()).toBe(false);
+  });
   it("hides the Google button and divider when off", () => {
     render(<AuthForm mode="sign-in" next="/" configured />);
     expect(
@@ -36,12 +47,14 @@ describe("Google sign-in toggle", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
   });
   it("shows it on sign-in and sign-up when on, never on other forms", () => {
-    render(<AuthForm mode="sign-up" next="/" configured google />);
+    render(<AuthForm mode="sign-up" next="/" configured googleEnabled />);
     expect(
       screen.getByRole("button", { name: "Continue with Google" }),
     ).toBeTruthy();
     cleanup();
-    render(<AuthForm mode="forgot-password" next="/" configured google />);
+    render(
+      <AuthForm mode="forgot-password" next="/" configured googleEnabled />,
+    );
     expect(
       screen.queryByRole("button", { name: "Continue with Google" }),
     ).toBeNull();
