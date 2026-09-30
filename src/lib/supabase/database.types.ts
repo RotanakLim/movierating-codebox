@@ -387,28 +387,40 @@ export type Database = {
         Row: {
           created_at: string;
           details: string | null;
+          entry_snapshot: Json | null;
           id: string;
           reason: Database["public"]["Enums"]["report_reason"];
           reporter_id: string | null;
+          resolved_at: string | null;
           status: Database["public"]["Enums"]["report_status"];
+          target_entry_id: string | null;
+          target_kind: string;
           target_user_id: string | null;
         };
         Insert: {
           created_at?: string;
           details?: string | null;
+          entry_snapshot?: Json | null;
           id?: string;
           reason: Database["public"]["Enums"]["report_reason"];
           reporter_id?: string | null;
+          resolved_at?: string | null;
           status?: Database["public"]["Enums"]["report_status"];
+          target_entry_id?: string | null;
+          target_kind?: string;
           target_user_id?: string | null;
         };
         Update: {
           created_at?: string;
           details?: string | null;
+          entry_snapshot?: Json | null;
           id?: string;
           reason?: Database["public"]["Enums"]["report_reason"];
           reporter_id?: string | null;
+          resolved_at?: string | null;
           status?: Database["public"]["Enums"]["report_status"];
+          target_entry_id?: string | null;
+          target_kind?: string;
           target_user_id?: string | null;
         };
         Relationships: [
@@ -424,6 +436,34 @@ export type Database = {
             columns: ["reporter_id"];
             isOneToOne: false;
             referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_entry_id_fkey";
+            columns: ["target_entry_id"];
+            isOneToOne: false;
+            referencedRelation: "current_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_entry_id_fkey";
+            columns: ["target_entry_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_entry_id_fkey";
+            columns: ["target_entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_current_ratings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_entry_id_fkey";
+            columns: ["target_entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_reviews";
             referencedColumns: ["id"];
           },
           {
@@ -798,16 +838,72 @@ export type Database = {
       };
     };
     Functions: {
+      admin_moderate: {
+        Args: {
+          action: string;
+          reason: string;
+          report?: string;
+          target_entry?: string;
+          target_user?: string;
+        };
+        Returns: string;
+      };
+      admin_moderation_log: {
+        Args: { max_rows?: number };
+        Returns: {
+          action: string;
+          admin_username: string;
+          created_at: string;
+          id: string;
+          reason: string;
+          report_id: string;
+          target_entry_id: string;
+          target_user_id: string;
+          target_username: string;
+        }[];
+      };
+      admin_reports: {
+        Args: {
+          filter_status?: Database["public"]["Enums"]["report_status"];
+          max_rows?: number;
+        };
+        Returns: {
+          created_at: string;
+          details: string;
+          entry_deleted: boolean;
+          entry_hidden: boolean;
+          entry_note: string;
+          entry_score: number;
+          entry_spoiler: boolean;
+          id: string;
+          movie_id: number;
+          movie_title: string;
+          reason: Database["public"]["Enums"]["report_reason"];
+          reporter_username: string;
+          resolved_at: string;
+          status: Database["public"]["Enums"]["report_status"];
+          target_entry_id: string;
+          target_kind: string;
+          target_suspended: boolean;
+          target_user_id: string;
+          target_username: string;
+        }[];
+      };
       consume_movie_request_limit: {
         Args: { key_hash: string; request_scope: string };
         Returns: Json;
       };
+      is_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       movie_rating_summary: {
         Args: { target_movie_id: number };
         Returns: {
           average: number;
           raters: number;
         }[];
+      };
+      my_account_suspended: {
+        Args: Record<PropertyKey, never>;
+        Returns: boolean;
       };
       my_blocked_users: {
         Args: Record<PropertyKey, never>;

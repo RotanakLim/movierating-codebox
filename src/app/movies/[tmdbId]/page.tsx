@@ -262,7 +262,11 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
         </div>
       </div>
       {reviews ? (
-        <ReviewList movieId={movie.id} initial={reviews} />
+        <ReviewList
+          movieId={movie.id}
+          initial={reviews}
+          viewerId={viewer.status === "ready" ? viewer.userId : null}
+        />
       ) : (
         <p className="mt-12 text-sm text-muted">
           Reviews are unavailable right now.

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   ensure: vi.fn(),
   respond: vi.fn(),
   calls: [] as Call[],
+  suspended: vi.fn(() => false),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -18,7 +19,11 @@ vi.mock("@/lib/movies/ensure-cached", () => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    rpc: mocks.rpc,
+    // Account-status lookups answer "not suspended"; other RPCs go to the mock.
+    rpc: (name: string, ...args: unknown[]) =>
+      name === "my_account_suspended"
+        ? Promise.resolve({ data: mocks.suspended(), error: null })
+        : mocks.rpc(name, ...args),
     from(table: string) {
       const call: Call = { table, ops: [] };
       mocks.calls.push(call);
@@ -38,6 +43,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import {
   block,
   follow,
+  reportReview,
   reportUser,
   setVisibility,
   unfollow,
@@ -155,6 +161,68 @@ describe("block and report", () => {
     expect(
       await reportUser({ userId: OTHER, reason: "spam", details: "" }),
     ).toMatchObject({ ok: false, error: expect.stringContaining("already") });
+  });
+  it("reports a review by its ID only; the database records the author", async () => {
+    mocks.respond.mockResolvedValue({ error: null });
+    const REVIEW = "50000000-0000-4000-8000-000000000001";
+    const result = await reportReview({
+      reviewId: REVIEW,
+      reason: "spoilers",
+      details: "",
+    });
+    expect(result).toMatchObject({ ok: true });
+    const [[, [row]]] = ops("reports", "insert") as [
+      string,
+      [Record<string, unknown>],
+    ][];
+    expect(row).toEqual({
+      id: expect.any(String),
+      target_entry_id: REVIEW,
+      reason: "spoilers",
+      details: null,
+    });
+    mocks.respond.mockResolvedValue({ error: { code: "23505" } });
+    expect(
+      await reportReview({ reviewId: REVIEW, reason: "spam", details: "" }),
+    ).toEqual({
+      ok: false,
+      error: "You already have an open report about this review.",
+    });
+    mocks.respond.mockResolvedValue({ error: { code: "23514" } });
+    expect(
+      (await reportReview({ reviewId: REVIEW, reason: "spam", details: "" }))
+        .ok,
+    ).toBe(false);
+    expect(
+      (
+        await reportReview({
+          reviewId: "not-a-uuid",
+          reason: "spam",
+          details: "",
+        })
+      ).ok,
+    ).toBe(false);
+  });
+  it("tells the reporter when to try again after the daily limit", async () => {
+    mocks.respond.mockResolvedValue({
+      error: { code: "PT429", details: "7200" },
+    });
+    expect(
+      await reportUser({ userId: OTHER, reason: "spam", details: "" }),
+    ).toEqual({
+      ok: false,
+      error: "You've sent a lot of reports today. Try again in about 2 hours.",
+    });
+  });
+  it("explains that suspended accounts can't act", async () => {
+    mocks.suspended.mockReturnValue(true);
+    expect(
+      await reportUser({ userId: OTHER, reason: "spam", details: "" }),
+    ).toEqual({
+      ok: false,
+      error: "Your account is suspended, so you can't do this right now.",
+    });
+    expect(ops("reports", "insert")).toHaveLength(0);
   });
   it("validates the reason and detail length", async () => {
     expect(

@@ -6,13 +6,31 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
+
+const actions = vi.hoisted(() => ({
+  block: vi.fn(),
+  unblock: vi.fn(),
+  reportReview: vi.fn(),
+  reportUser: vi.fn(),
+  refresh: vi.fn(),
+}));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: actions.refresh, push: vi.fn() }),
+}));
+vi.mock("@/app/profiles/actions", () => ({
+  block: actions.block,
+  unblock: actions.unblock,
+  reportReview: actions.reportReview,
+  reportUser: actions.reportUser,
+}));
 import { ReviewList } from "@/components/reviews/review-list";
 import type { Review } from "@/lib/reviews/types";
 
 const review = (n: number, extra: Partial<Review> = {}): Review => ({
   id: `review-${n}`,
-  author: { username: `author${n}`, avatar: null },
+  author: { id: `user-${n}`, username: `author${n}`, avatar: null },
   score: 7.5,
   note: `Plain review ${n}`,
   spoiler: false,
@@ -22,6 +40,7 @@ const review = (n: number, extra: Partial<Review> = {}): Review => ({
 });
 const fetchMock = vi.fn();
 beforeEach(() => {
+  Object.values(actions).forEach((mock) => mock.mockReset());
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -103,5 +122,108 @@ describe("<ReviewList>", () => {
       <ReviewList movieId={10} initial={{ reviews: [], nextCursor: null }} />,
     );
     expect(document.body.textContent).toContain("No reviews yet");
+  });
+
+  it("offers report and block only to signed-in viewers, never on their own review", () => {
+    const initial = { reviews: [review(1), review(2)], nextCursor: null };
+    const { unmount } = render(<ReviewList movieId={10} initial={initial} />);
+    expect(screen.queryByRole("button", { name: "Report" })).toBeNull();
+    unmount();
+    render(<ReviewList movieId={10} initial={initial} viewerId="user-1" />);
+    expect(screen.getAllByRole("button", { name: "Report" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Block @author2" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Block @author1" })).toBeNull();
+  });
+  it("explains logged-out visibility before blocking, then hides the author with an undo", async () => {
+    actions.block.mockResolvedValue({ ok: true });
+    actions.unblock.mockResolvedValue({ ok: true });
+    render(
+      <ReviewList
+        movieId={10}
+        initial={{
+          reviews: [
+            review(2),
+            review(3),
+            { ...review(4), author: review(2).author },
+          ],
+          nextCursor: null,
+        }}
+        viewerId="user-1"
+      />,
+    );
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Block @author2" })[0],
+    );
+    const confirm = screen.getByRole("group", { name: "Block @author2" });
+    expect(confirm.textContent).toContain(
+      "visible to anyone who is signed out",
+    );
+    expect(confirm.textContent).toContain("won't restore follows");
+    await act(async () =>
+      fireEvent.click(
+        within(confirm).getByRole("button", { name: "Block @author2" }),
+      ),
+    );
+    expect(actions.block).toHaveBeenCalledWith({ userId: "user-2" });
+    expect(document.body.textContent).not.toContain("Plain review 2");
+    expect(document.body.textContent).not.toContain("Plain review 4");
+    expect(document.body.textContent).toContain("Plain review 3");
+    expect(screen.getByRole("status").textContent).toContain(
+      "You blocked @author2",
+    );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Unblock" })),
+    );
+    expect(actions.unblock).toHaveBeenCalledWith({ userId: "user-2" });
+    expect(document.body.textContent).toContain("Plain review 2");
+  });
+  it("reports a review with a reason and shows the receipt", async () => {
+    actions.reportReview.mockResolvedValue({ ok: true, receipt: "AB12CD34" });
+    render(
+      <ReviewList
+        movieId={10}
+        initial={{ reviews: [review(2)], nextCursor: null }}
+        viewerId="user-1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+    fireEvent.click(screen.getByLabelText("Unmarked spoilers"));
+    fireEvent.change(screen.getByLabelText("Details (optional)"), {
+      target: { value: "Reveals the ending" },
+    });
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Send report" })),
+    );
+    expect(actions.reportReview).toHaveBeenCalledWith({
+      reviewId: "review-2",
+      reason: "spoilers",
+      details: "Reveals the ending",
+    });
+    expect(screen.getByRole("status").textContent).toContain("AB12CD34");
+  });
+  it("keeps the report open with the reason when it's refused", async () => {
+    actions.reportReview.mockResolvedValue({
+      ok: false,
+      error: "You've sent a lot of reports today. Try again in about 2 hours.",
+    });
+    render(
+      <ReviewList
+        movieId={10}
+        initial={{ reviews: [review(2)], nextCursor: null }}
+        viewerId="user-1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+    fireEvent.change(screen.getByLabelText("Details (optional)"), {
+      target: { value: "Keep this text" },
+    });
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Send report" })),
+    );
+    expect(screen.getByRole("alert").textContent).toContain("about 2 hours");
+    expect(
+      (screen.getByLabelText("Details (optional)") as HTMLTextAreaElement)
+        .value,
+    ).toBe("Keep this text");
   });
 });

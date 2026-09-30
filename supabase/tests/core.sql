@@ -958,3 +958,164 @@ with touched as (delete from storage.objects where bucket_id = 'avatars' and nam
 select codebox_test.denied($q$insert into storage.objects(bucket_id, name) values ('other-bucket', '00000000-0000-0000-0000-000000000030/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee.webp')$q$, '42501', 'the avatar policies do not open other buckets');
 reset role;
 select set_config('request.jwt.claim.sub', '', false);
+
+-- Moderation (SPEC 8/9): admin roles, review reports, hide/suspend/restore with audit,
+-- and persisted per-user limits on new entries and reports.
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+insert into public.movies(tmdb_id, title, year) values (99001, 'Moderation Test Movie', 2020);
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000040', now()), ('00000000-0000-0000-0000-000000000041', now()),
+ ('00000000-0000-0000-0000-000000000042', now()), ('00000000-0000-0000-0000-000000000043', now());
+update public.users set username = 'mod_admin' where id = '00000000-0000-0000-0000-000000000040';
+update public.users set username = 'mod_author' where id = '00000000-0000-0000-0000-000000000041';
+update public.users set username = 'mod_reporter' where id = '00000000-0000-0000-0000-000000000042';
+update public.users set username = 'mod_viewer' where id = '00000000-0000-0000-0000-000000000043';
+select codebox_test.ok((select count(*) = 0 from pg_policies where schemaname = 'codebox_private' and tablename = 'admin_roles'), 'admin roles have no client policies');
+select codebox_test.ok(not has_table_privilege('authenticated', 'codebox_private.admin_roles', 'INSERT'), 'users cannot grant themselves admin');
+select codebox_test.ok(not has_table_privilege('service_role', 'codebox_private.moderation_actions', 'SELECT'), 'the audit log is readable only through admin functions');
+select codebox_test.ok(not has_function_privilege('anon', 'public.admin_moderate(text, text, uuid, uuid, uuid)', 'EXECUTE'), 'guests cannot moderate');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000041', false);
+insert into public.entries(id, movie_id, score, note) values
+ ('00000000-0000-0000-0000-00000000e041', 99001, 2.0, 'Rude review'),
+ ('00000000-0000-0000-0000-00000000e042', 99001, null, null);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000043', false);
+insert into public.entries(movie_id, score) values (99001, 8.0);
+select codebox_test.ok((select average = 5.0 and raters = 2 from public.movie_rating_summary(99001)), 'moderation fixture: two raters');
+
+-- Admin functions refuse everyone who is not an admin.
+select codebox_test.ok(not public.is_admin(), 'ordinary users are not admins');
+select codebox_test.denied($q$select public.admin_reports()$q$, '42501', 'non-admins cannot read the report queue');
+select codebox_test.denied($q$select public.admin_moderation_log()$q$, '42501', 'non-admins cannot read the audit log');
+select codebox_test.denied($q$select public.admin_moderate('hide', 'no', null, '00000000-0000-0000-0000-00000000e041')$q$, '42501', 'non-admins cannot hide content');
+select codebox_test.denied($q$insert into codebox_private.admin_roles(user_id) values (auth.uid())$q$, '42501', 'no public path to become an admin');
+
+-- Review reports: the author comes from the database; one open report per review.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000042', false);
+insert into public.reports(id, target_entry_id, target_user_id, reason, details) values
+ ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000e041', '00000000-0000-0000-0000-000000000043', 'harassment', 'Insults other viewers');
+select codebox_test.denied($q$select * from public.reports$q$, '42501', 'reporters still cannot read reports');
+select codebox_test.denied($q$insert into public.reports(target_entry_id, reason) values ('00000000-0000-0000-0000-00000000e041', 'spam')$q$, '23505', 'one open report per reporter and review');
+insert into public.reports(target_user_id, reason) values ('00000000-0000-0000-0000-000000000041', 'spam');
+select codebox_test.ok(true, 'a user report and a review report about the same person can both be open');
+select codebox_test.denied($q$insert into public.reports(target_entry_id, reason) values ('00000000-0000-0000-0000-00000000e042', 'spam')$q$, '23514', 'watched-only entries are not reviews and cannot be reported');
+select codebox_test.denied($q$insert into public.reports(target_entry_id, reason, target_kind) values ('00000000-0000-0000-0000-00000000e041', 'spam', 'user')$q$, '42501', 'reporters cannot choose the report kind');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000041', false);
+select codebox_test.denied($q$insert into public.reports(target_entry_id, reason) values ('00000000-0000-0000-0000-00000000e041', 'spam')$q$, '23514', 'users cannot report their own review');
+select codebox_test.denied($q$select * from public.reports$q$, '42501', 'reported authors cannot read reports about them');
+reset role;
+select codebox_test.ok((select target_kind = 'review' and target_user_id = '00000000-0000-0000-0000-000000000041' and entry_snapshot ->> 'note' = 'Rude review' and status = 'open' from public.reports where id = '00000000-0000-0000-0000-0000000000a1'), 'review reports record the real author and a snapshot, ignoring a client-sent target');
+insert into codebox_private.admin_roles(user_id, note) values ('00000000-0000-0000-0000-000000000040', 'test owner');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000040', false);
+select codebox_test.ok(public.is_admin(), 'the provisioned account is an admin');
+select codebox_test.ok((select count(*) = 2 from public.admin_reports() where target_user_id = '00000000-0000-0000-0000-000000000041'), 'admins see open reports');
+select codebox_test.ok((select reporter_username = 'mod_reporter' and target_username = 'mod_author' and movie_title = 'Moderation Test Movie' and entry_note = 'Rude review' and not entry_hidden from public.admin_reports() where id = '00000000-0000-0000-0000-0000000000a1'), 'admins see report context');
+select codebox_test.denied($q$select public.admin_moderate('hide', '   ', '00000000-0000-0000-0000-0000000000a1')$q$, '22023', 'every admin action needs a reason');
+select codebox_test.denied($q$select public.admin_moderate('delete_everything', 'why not', '00000000-0000-0000-0000-0000000000a1')$q$, '22023', 'unknown admin actions are refused');
+select codebox_test.denied($q$select public.admin_moderate('suspend', 'no', null, null, auth.uid())$q$, '22023', 'admins cannot suspend themselves');
+
+-- Hide: the review leaves public views, feeds and the average; the author still sees it.
+select public.admin_moderate('hide', 'Harassment of other viewers', '00000000-0000-0000-0000-0000000000a1');
+select codebox_test.ok((select status = 'resolved' and resolved_at is not null from public.admin_reports('resolved') where id = '00000000-0000-0000-0000-0000000000a1'), 'hiding resolves the report');
+select codebox_test.ok((select entry_hidden from public.admin_reports('resolved') where id = '00000000-0000-0000-0000-0000000000a1'), 'the queue shows the content is hidden');
+select codebox_test.denied($q$select public.admin_moderate('dismiss', 'late', '00000000-0000-0000-0000-0000000000a1')$q$, '22023', 'closed reports cannot be acted on again');
+select codebox_test.ok((select action = 'hide' and reason = 'Harassment of other viewers' and admin_username = 'mod_admin' and target_username = 'mod_author' and target_entry_id = '00000000-0000-0000-0000-00000000e041' from public.admin_moderation_log() limit 1), 'the action is audited with its reason and admin');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000043', false);
+select codebox_test.ok((select count(*) = 0 from public.public_reviews where id = '00000000-0000-0000-0000-00000000e041'), 'hidden reviews leave public reviews');
+select codebox_test.ok((select count(*) = 0 from public.public_current_ratings where id = '00000000-0000-0000-0000-00000000e041'), 'hidden reviews leave public ratings');
+select codebox_test.ok((select count(*) = 0 from public.entries where id = '00000000-0000-0000-0000-00000000e041'), 'hidden reviews leave the author''s public profile');
+select codebox_test.ok((select count(*) = 0 from public.activity_feed where entry_id = '00000000-0000-0000-0000-00000000e041'), 'hidden reviews leave feeds');
+select codebox_test.ok((select average = 8.0 and raters = 1 from public.movie_rating_summary(99001)), 'hidden reviews leave the community average');
+set role anon;
+select codebox_test.ok((select count(*) = 0 from public.public_reviews where id = '00000000-0000-0000-0000-00000000e041'), 'hidden reviews are hidden from signed-out visitors too');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000041', false);
+select codebox_test.ok((select count(*) = 1 from public.entries where id = '00000000-0000-0000-0000-00000000e041'), 'authors still see their own hidden review');
+select codebox_test.denied($q$select * from codebox_private.hidden_entries$q$, '42501', 'authors cannot see or change moderation state');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000042', false);
+select codebox_test.denied($q$insert into public.reports(target_entry_id, reason) values ('00000000-0000-0000-0000-00000000e041', 'spam')$q$, '23514', 'hidden reviews cannot be reported again');
+
+-- Restore content.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000040', false);
+select codebox_test.denied($q$select public.admin_moderate('restore', 'oops', null, '00000000-0000-0000-0000-00000000e041', '00000000-0000-0000-0000-000000000041')$q$, '22023', 'restore takes one target at a time');
+select public.admin_moderate('restore', 'Reviewed on appeal', null, '00000000-0000-0000-0000-00000000e041');
+select codebox_test.denied($q$select public.admin_moderate('restore', 'twice', null, '00000000-0000-0000-0000-00000000e041')$q$, '22023', 'restoring visible content is refused');
+select codebox_test.ok((select average = 5.0 and raters = 2 from public.movie_rating_summary(99001)), 'restored reviews count again');
+select codebox_test.ok((select count(*) = 1 from public.public_reviews where id = '00000000-0000-0000-0000-00000000e041'), 'restored reviews are public again');
+
+-- Suspend: every review by the account leaves public views, and it can't contribute.
+select public.admin_moderate('suspend', 'Repeated harassment', (select id from public.admin_reports() where target_kind = 'user' and target_user_id = '00000000-0000-0000-0000-000000000041'));
+select codebox_test.ok((select target_suspended and status = 'resolved' from public.admin_reports('resolved') where target_kind = 'user' and target_user_id = '00000000-0000-0000-0000-000000000041'), 'suspending resolves the user report');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000043', false);
+select codebox_test.ok((select count(*) = 0 from public.public_reviews where user_id = '00000000-0000-0000-0000-000000000041'), 'suspended authors leave public reviews');
+select codebox_test.ok((select count(*) = 0 from public.user_movie_collection where user_id = '00000000-0000-0000-0000-000000000041'), 'suspended authors leave collections');
+select codebox_test.ok((select average = 8.0 and raters = 1 from public.movie_rating_summary(99001)), 'suspended authors leave the community average');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000041', false);
+select codebox_test.ok(public.my_account_suspended(), 'suspended users can learn they are suspended');
+select codebox_test.denied($q$insert into public.entries(movie_id, score) values (99001, 9.0)$q$, '42501', 'suspended users cannot add entries');
+select codebox_test.denied($q$insert into public.reports(target_user_id, reason) values ('00000000-0000-0000-0000-000000000042', 'spam')$q$, '42501', 'suspended users cannot report');
+with touched as (update public.users set profile = '{"bio": "back"}' where id = auth.uid() returning 1)
+  select codebox_test.ok((select count(*) = 0 from touched), 'suspended users cannot edit their profile');
+with touched as (update public.entries set note = 'edited' where user_id = auth.uid() returning 1)
+  select codebox_test.ok((select count(*) = 0 from touched), 'suspended users cannot edit entries');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000040', false);
+select public.admin_moderate('restore', 'Suspension served', null, null, '00000000-0000-0000-0000-000000000041');
+select codebox_test.ok((select average = 5.0 and raters = 2 from public.movie_rating_summary(99001)), 'restored accounts count again');
+select codebox_test.ok((select count(*) = 4 from public.admin_moderation_log()), 'every admin action is in the audit log');
+
+-- Dismiss.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000042', false);
+insert into public.reports(id, target_entry_id, reason) values ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000e041', 'spoilers');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000040', false);
+select public.admin_moderate('dismiss', 'Not a spoiler', '00000000-0000-0000-0000-0000000000a2');
+select codebox_test.ok((select count(*) = 1 from public.admin_reports('dismissed') where id = '00000000-0000-0000-0000-0000000000a2'), 'dismissing closes the report');
+select codebox_test.ok((select count(*) = 1 from public.public_reviews where id = '00000000-0000-0000-0000-00000000e041'), 'dismissing leaves the content visible');
+
+-- Persisted limits: new entries and reports per user, configurable by the owner.
+reset role;
+update codebox_private.action_limit_settings set max_actions = 2 where action = 'entry';
+update codebox_private.action_limit_settings set max_actions = 1 where action = 'report';
+select codebox_test.ok((select count(*) = 2 from codebox_private.action_limit_settings where (action, window_seconds) in (('entry', 3600), ('report', 86400))), 'default windows are an hour for entries and a day for reports');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000043', false);
+delete from public.entries where user_id = auth.uid();
+insert into public.entries(movie_id, score) values (603, 7.0);
+select codebox_test.denied($q$insert into public.entries(movie_id, score) values (680, 7.0)$q$, 'PT429', 'new entries are limited per user, even after deleting old ones');
+select codebox_test.ok((select count(*) = 1 from public.entries where user_id = auth.uid()), 'a refused entry is not saved');
+update public.entries set note = 'Edits are not limited' where user_id = auth.uid();
+select codebox_test.ok(true, 'editing an existing entry is not limited');
+do $$
+declare retry text; action_name text;
+begin
+  insert into public.entries(movie_id, score) values (680, 7.0);
+  raise exception 'FAIL: limit not applied';
+exception when sqlstate 'PT429' then
+  get stacked diagnostics retry = pg_exception_detail, action_name = pg_exception_hint;
+  perform codebox_test.ok(retry::integer between 1 and 3600 and action_name = 'entry', 'the limit error says when to retry and which limit');
+end;
+$$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000042', false);
+select codebox_test.denied($q$insert into public.reports(target_user_id, reason) values ('00000000-0000-0000-0000-000000000043', 'spam')$q$, 'PT429', 'reports are limited per user per day');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000043', false);
+insert into public.reports(target_user_id, reason) values ('00000000-0000-0000-0000-000000000042', 'other');
+select codebox_test.ok(true, 'each user has their own report budget');
+reset role;
+select codebox_test.ok((select count(*) = 0 from codebox_private.action_limits where user_id = '00000000-0000-0000-0000-000000000040'), 'admins moderating do not consume user limits');
+update codebox_private.action_limits set window_started_at = now() - interval '2 hours' where action = 'entry';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000043', false);
+insert into public.entries(movie_id, score) values (680, 7.0);
+select codebox_test.ok(true, 'the entry limit resets after its window');
+reset role;
+update codebox_private.action_limit_settings set max_actions = 20 where action = 'entry';
+update codebox_private.action_limit_settings set max_actions = 10 where action = 'report';
+
+-- Deleting a reported account keeps moderation records without identifying it.
+delete from public.users where id = '00000000-0000-0000-0000-000000000041';
+select codebox_test.ok((select count(*) = 4 and bool_and(target_user_id is null) from codebox_private.moderation_actions where reason in ('Harassment of other viewers', 'Reviewed on appeal', 'Repeated harassment', 'Suspension served')), 'audit entries outlive the account without its ID');
+select codebox_test.ok((select count(*) = 0 from codebox_private.suspended_users where user_id = '00000000-0000-0000-0000-000000000041'), 'moderation state is removed with the account');
+select set_config('request.jwt.claim.sub', '', false);

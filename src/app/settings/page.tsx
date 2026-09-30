@@ -66,6 +66,7 @@ export default async function SettingsPage() {
     { data: incoming },
     { data: blocked },
     authenticatedAt,
+    { data: admin },
   ] = await Promise.all([
     supabase
       .from("users")
@@ -90,6 +91,7 @@ export default async function SettingsPage() {
       .order("created_at", { ascending: false }),
     supabase.rpc("my_blocked_users"),
     lastAuthenticatedAt(supabase),
+    supabase.rpc("is_admin"),
   ]);
   const ids = [...new Set((incoming ?? []).map((row) => row.follower_id))];
   const { data: people } = ids.length
@@ -267,6 +269,16 @@ export default async function SettingsPage() {
             </p>
           )}
         </Section>
+
+        {admin === true && (
+          <p className="text-sm text-muted">
+            You&apos;re a moderator:{" "}
+            <Link href="/admin/reports" className="text-accent underline">
+              open the report queue
+            </Link>
+            .
+          </p>
+        )}
 
         <p className="text-sm text-muted">
           Email, password and sign-out are on your{" "}

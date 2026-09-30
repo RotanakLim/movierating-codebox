@@ -10,14 +10,25 @@ import { formatDate, todayIn } from "@/lib/entries/dates";
 import { readUsername } from "@/lib/onboarding/profile";
 import { entryInputSchema } from "@/lib/entries/schema";
 import type { SaveEntryErrorCode, SaveEntryResult } from "@/lib/entries/types";
+import { rateLimitRetry, retryPhrase } from "@/lib/rate-limit";
 
-const fail = (code: SaveEntryErrorCode, error: string): SaveEntryResult => ({
+const fail = (
+  code: SaveEntryErrorCode,
+  error: string,
+  retryAfter?: number,
+): SaveEntryResult => ({
   ok: false,
   code,
   error,
+  ...(retryAfter ? { retryAfter } : {}),
 });
 const unavailable = () =>
   fail("UNAVAILABLE", "We couldn't save your entry. Please try again.");
+const suspended = () =>
+  fail(
+    "SUSPENDED",
+    "Your account is suspended, so you can't add or edit entries right now.",
+  );
 
 /**
  * Create or update one of the signed-in user's entries. The client supplies the
@@ -42,6 +53,8 @@ export async function saveEntry(input: unknown): Promise<SaveEntryResult> {
       "USERNAME_REQUIRED",
       "Choose a username before saving entries.",
     );
+  const { data: isSuspended } = await supabase.rpc("my_account_suspended");
+  if (isSuspended === true) return suspended();
 
   // Entries reference movies: cache authoritative TMDB metadata if it's missing.
   try {
@@ -101,6 +114,14 @@ export async function saveEntry(input: unknown): Promise<SaveEntryResult> {
       return fail(
         "INVALID",
         "Check the score, review and date, then try again.",
+      );
+    // New entries are limited per user (default 20 an hour); edits are not.
+    const retryAfter = rateLimitRetry(error);
+    if (retryAfter !== null)
+      return fail(
+        "RATE_LIMITED",
+        `You've added a lot of entries recently. Try again ${retryPhrase(retryAfter)}. Your draft is kept.`,
+        retryAfter,
       );
     return unavailable();
   }

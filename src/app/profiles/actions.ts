@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireContributor, type ActionResult } from "@/lib/auth/contributor";
 import { getUser } from "@/lib/auth/user";
 import { createClient } from "@/lib/supabase/server";
+import { rateLimitRetry, retryPhrase } from "@/lib/rate-limit";
 
 const userId = z.uuid();
 const failed = {
@@ -125,42 +126,87 @@ const REPORT_REASONS = [
   "other",
 ] as const;
 
-/** Report a user. Only admins can read reports; the reporter gets a receipt. */
+const reportFields = {
+  reason: z.enum(REPORT_REASONS),
+  details: z
+    .string()
+    .transform((value) => value.trim())
+    .pipe(z.string().max(1000, "Details can be up to 1,000 characters.")),
+};
+
+/** Map a refused report insert to a message; the database enforces each rule. */
+function reportError(
+  error: { code?: string; details?: string | null },
+  subject: "account" | "review",
+) {
+  const retryAfter = rateLimitRetry(error);
+  if (retryAfter !== null)
+    return `You've sent a lot of reports today. Try again ${retryPhrase(retryAfter)}.`;
+  if (error.code === "23505")
+    return `You already have an open report about this ${subject}.`;
+  if (error.code === "23514")
+    return subject === "review"
+      ? "This review can't be reported. It may be yours or no longer public."
+      : "You can't report this account.";
+  return failed.error;
+}
+
+/**
+ * Report a user or a review. Only admins can read reports (never the reported
+ * person); the reporter gets a receipt. Clients may not read reports, so the
+ * receipt ID is generated here. For reviews the database records the author.
+ */
+async function fileReport(
+  target: { target_user_id: string } | { target_entry_id: string },
+  fields: { reason: (typeof REPORT_REASONS)[number]; details: string },
+  subject: "account" | "review",
+): Promise<ActionResult<{ receipt: string }>> {
+  const session = await requireContributor();
+  if (!session.ok) return session;
+  const receipt = crypto.randomUUID();
+  const { error } = await session.supabase.from("reports").insert({
+    id: receipt,
+    ...target,
+    reason: fields.reason,
+    details: fields.details || null,
+  });
+  if (error) return { ok: false, error: reportError(error, subject) };
+  return { ok: true, receipt: receipt.slice(0, 8).toUpperCase() };
+}
+
 export async function reportUser(
   input: unknown,
 ): Promise<ActionResult<{ receipt: string }>> {
   const parsed = z
-    .object({
-      userId,
-      reason: z.enum(REPORT_REASONS),
-      details: z
-        .string()
-        .transform((value) => value.trim())
-        .pipe(z.string().max(1000, "Details can be up to 1,000 characters.")),
-    })
+    .object({ userId, ...reportFields })
     .strict()
     .safeParse(input);
   if (!parsed.success)
     return { ok: false, error: parsed.error.issues[0].message };
-  const session = await requireContributor();
-  if (!session.ok) return session;
-  if (parsed.data.userId === session.user.id)
+  const user = await getUser();
+  if (user && parsed.data.userId === user.id)
     return { ok: false, error: "You can't report yourself." };
-  // Clients may not read reports, so generate the receipt ID here.
-  const receipt = crypto.randomUUID();
-  const { error } = await session.supabase.from("reports").insert({
-    id: receipt,
-    target_user_id: parsed.data.userId,
-    reason: parsed.data.reason,
-    details: parsed.data.details || null,
-  });
-  if (error?.code === "23505")
-    return {
-      ok: false,
-      error: "You already have an open report about this account.",
-    };
-  if (error) return failed;
-  return { ok: true, receipt: receipt.slice(0, 8).toUpperCase() };
+  return fileReport(
+    { target_user_id: parsed.data.userId },
+    parsed.data,
+    "account",
+  );
+}
+
+export async function reportReview(
+  input: unknown,
+): Promise<ActionResult<{ receipt: string }>> {
+  const parsed = z
+    .object({ reviewId: z.uuid(), ...reportFields })
+    .strict()
+    .safeParse(input);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0].message };
+  return fileReport(
+    { target_entry_id: parsed.data.reviewId },
+    parsed.data,
+    "review",
+  );
 }
 
 const visibility = z.enum(["public", "followers", "friends", "private"]);
