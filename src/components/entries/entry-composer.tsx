@@ -44,12 +44,18 @@ export function EntryComposer({
   viewer,
   entries,
   compose,
+  opensOn = null,
+  serverToday,
 }: {
   movieId: number;
   movieTitle: string;
   viewer: Viewer;
   entries: Entry[];
   compose: "rate" | "log" | null;
+  /** Earliest known release date; contributions open that day. */
+  opensOn?: string | null;
+  /** Today's date on the server, used until the browser's own date is known. */
+  serverToday: string;
 }) {
   const router = useRouter();
   const ids = { score: useId(), note: useId(), date: useId() };
@@ -63,6 +69,11 @@ export function EntryComposer({
   const [saved, setSaved] = useState<string | null>(null);
   const [today, setToday] = useState<string | null>(null);
   const restoredOnce = useRef(false);
+  const [localToday, setLocalToday] = useState<string | null>(null);
+  useEffect(() => setLocalToday(todayIn(browserTimeZone())), []);
+  // Unreleased: can be watchlisted but not rated, reviewed or logged yet. The
+  // server action re-checks this with the viewer's timezone.
+  const notYetReleased = !!opensOn && opensOn > (localToday ?? serverToday);
   const target =
     composing?.targetId != null
       ? (entries.find((entry) => entry.id === composing.targetId) ?? null)
@@ -263,7 +274,13 @@ export function EntryComposer({
         </ul>
       )}
 
-      {!composing && (
+      {notYetReleased && !composing && (
+        <p className="mt-4 rounded-xl border border-line p-4 text-sm text-muted">
+          Not released yet. Ratings, reviews and watch logs open on{" "}
+          {formatDate(opensOn!)}. You can add it to your watchlist now.
+        </p>
+      )}
+      {!composing && !notYetReleased && (
         <div className="mt-5 flex flex-wrap gap-3">
           <button
             type="button"

@@ -36,6 +36,7 @@ export type SaveEntryErrorCode =
   | "VERIFICATION_REQUIRED"
   | "USERNAME_REQUIRED"
   | "CONFLICT"
+  | "NOT_RELEASED"
   | "UNAVAILABLE";
 
 export const NOTE_MAX_LENGTH = 5000;

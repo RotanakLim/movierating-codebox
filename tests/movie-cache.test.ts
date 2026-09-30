@@ -31,6 +31,9 @@ it("upserts an exact minimal cache row and never persists the TMDB payload", asy
     genres: ["Science fiction"],
     genreIds: [878],
     releaseDate: "2024-03-01",
+    availableFrom: "2024-02-28",
+    cast: [{ name: "Do Not Store", character: "Nobody" }],
+    trailer: { name: "Trailer", url: "https://www.youtube.com/watch?v=abcdef" },
     voteAverage: 8,
     voteCount: 30,
   };

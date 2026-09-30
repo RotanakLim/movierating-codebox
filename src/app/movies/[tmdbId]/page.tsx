@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { ArrowLeft, Clock, Star } from "lucide-react";
+import { ArrowLeft, Clock, Play } from "lucide-react";
 import { getMovieDetails } from "@/lib/movies/tmdb";
 import { movieId } from "@/lib/movies/validation";
 import { MovieError } from "@/lib/movies/errors";
@@ -12,6 +12,12 @@ import { safeNext } from "@/lib/auth/redirect";
 import type { MovieDetails } from "@/lib/movies/types";
 import { EntryComposer } from "@/components/entries/entry-composer";
 import { loadViewerEntries } from "@/lib/entries/load";
+import { loadRatingSummary } from "@/lib/movies/rating-summary";
+import { loadReviews } from "@/lib/reviews/load";
+import { formatScore } from "@/lib/entries/score";
+import { todayIn } from "@/lib/entries/dates";
+import { WatchlistToggle } from "@/components/movies/watchlist-toggle";
+import { ReviewList } from "@/components/reviews/review-list";
 
 type PageProps = {
   params: Promise<{ tmdbId: string }>;
@@ -84,7 +90,14 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
     );
   }
   const { movie } = result;
-  const { viewer, entries } = await loadViewerEntries(movie.id);
+  const [{ viewer, entries, watchlisted }, summary, reviews] =
+    await Promise.all([
+      loadViewerEntries(movie.id),
+      loadRatingSummary(movie.id),
+      loadReviews(movie.id, { cursor: null, writtenOnly: false }).catch(
+        () => null,
+      ),
+    ]);
   return (
     <section className="py-10 sm:py-14">
       <Link
@@ -95,15 +108,20 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
         Back to results
       </Link>
       <div className="mt-9 grid gap-9 sm:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr] lg:gap-14">
-        <div className="mx-auto w-full max-w-[280px] sm:mx-0">
+        <div className="mx-auto w-full max-w-[280px] space-y-4 sm:mx-0">
           <MoviePoster
             path={movie.posterPath}
             title={movie.title}
             size="w500"
             priority
           />
+          <WatchlistToggle
+            movieId={movie.id}
+            initial={watchlisted}
+            viewer={viewer.status}
+          />
         </div>
-        <div className="max-w-2xl">
+        <div className="min-w-0 max-w-2xl">
           <p className="eyebrow mb-4">THE MOVIE COLLECTION</p>
           <h1 className="font-display text-4xl leading-tight sm:text-5xl">
             {movie.title}
@@ -116,14 +134,52 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
                 {movie.runtime} min
               </span>
             )}
-            {movie.voteCount > 0 && movie.voteAverage !== null && (
-              <span className="inline-flex items-center gap-1.5">
-                <Star size={14} aria-hidden="true" />
-                {movie.voteAverage.toFixed(1)}/10 · TMDB (
-                {movie.voteCount.toLocaleString("en-US")} votes)
-              </span>
-            )}
           </div>
+
+          {/* CodeBox and TMDB scores are separate and never blended. */}
+          <dl className="mt-6 grid grid-cols-2 gap-3 sm:max-w-md">
+            <div className="rounded-xl border border-line p-4">
+              <dt className="text-xs text-muted">CodeBox members</dt>
+              <dd className="mt-1">
+                {summary && summary.average !== null && summary.raters > 0 ? (
+                  <>
+                    <span className="font-display text-2xl tabular-nums">
+                      {formatScore(summary.average)}
+                    </span>
+                    <span className="text-sm text-muted">/10</span>
+                    <span className="block text-xs text-muted">
+                      {summary.raters.toLocaleString("en-US")}{" "}
+                      {summary.raters === 1 ? "rating" : "ratings"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted">
+                    {summary ? "Not rated yet" : "Unavailable right now"}
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div className="rounded-xl border border-line p-4">
+              <dt className="text-xs text-muted">TMDB users</dt>
+              <dd className="mt-1">
+                {movie.voteCount > 0 && movie.voteAverage !== null ? (
+                  <>
+                    <span className="font-display text-2xl tabular-nums">
+                      {movie.voteAverage.toFixed(1)}
+                    </span>
+                    <span className="text-sm text-muted">/10</span>
+                    <span className="block text-xs text-muted">
+                      {movie.voteCount.toLocaleString("en-US")}{" "}
+                      {movie.voteCount === 1 ? "vote" : "votes"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted">No TMDB score</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+
           {movie.genres.length > 0 && (
             <div className="mt-5 flex flex-wrap gap-2">
               {movie.genres.map((genre) => (
@@ -149,12 +205,46 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
           <p className="mt-3 whitespace-pre-line leading-relaxed text-muted">
             {movie.overview ?? "A synopsis isn't available for this movie yet."}
           </p>
+          {movie.trailer && (
+            // A plain link: the trailer opens only when clicked, never autoplays.
+            <a
+              href={movie.trailer.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="button-secondary mt-6"
+            >
+              <Play size={16} aria-hidden="true" />
+              Watch trailer
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          )}
+
+          <h2 className="mt-9 text-sm font-semibold">Cast</h2>
+          {movie.cast.length > 0 ? (
+            <ul className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              {movie.cast.map((person) => (
+                <li key={`${person.name}-${person.character}`}>
+                  <span className="font-medium">{person.name}</span>
+                  {person.character && (
+                    <span className="text-muted"> as {person.character}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-sm text-muted">
+              Cast information isn&apos;t available yet.
+            </p>
+          )}
+
           <EntryComposer
             movieId={movie.id}
             movieTitle={movie.title}
             viewer={viewer}
             entries={entries}
             compose={compose === "rate" || compose === "log" ? compose : null}
+            opensOn={movie.availableFrom}
+            serverToday={todayIn("UTC")}
           />
           <a
             href={`https://www.themoviedb.org/movie/${movie.id}`}
@@ -166,6 +256,13 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
           </a>
         </div>
       </div>
+      {reviews ? (
+        <ReviewList movieId={movie.id} initial={reviews} />
+      ) : (
+        <p className="mt-12 text-sm text-muted">
+          Reviews are unavailable right now.
+        </p>
+      )}
     </section>
   );
 }

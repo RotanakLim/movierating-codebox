@@ -101,6 +101,100 @@ describe("TMDB server integration", () => {
     expect(movie.year).toBeNull();
     expect(movie.runtime).toBeNull();
   });
+  it("fetches cast, videos and release dates in one request", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...rawMovie,
+        credits: {
+          cast: [
+            { name: "Zendaya", character: "Chani", order: 1 },
+            { name: "Timothée Chalamet", character: "Paul Atreides", order: 0 },
+            { name: "  ", character: "Nameless", order: 2 },
+            ...Array.from({ length: 12 }, (_, index) => ({
+              name: `Extra ${index}`,
+              character: null,
+              order: 10 + index,
+            })),
+          ],
+        },
+        videos: {
+          results: [
+            {
+              site: "YouTube",
+              type: "Teaser",
+              key: "teaser12345",
+              official: true,
+            },
+            {
+              site: "YouTube",
+              type: "Trailer",
+              key: "fan-cut123",
+              official: false,
+            },
+            {
+              site: "YouTube",
+              type: "Trailer",
+              key: "Way9Dexny3w",
+              official: true,
+              name: "Official Trailer 3",
+            },
+            {
+              site: "Evil",
+              type: "Trailer",
+              key: "javascript:alert(1)",
+              official: true,
+            },
+          ],
+        },
+        release_dates: {
+          results: [
+            {
+              iso_3166_1: "US",
+              release_dates: [{ release_date: "2024-03-01T00:00:00.000Z" }],
+            },
+            {
+              iso_3166_1: "FR",
+              release_dates: [
+                { release_date: "2024-02-28T00:00:00.000Z" },
+                { release_date: "junk" },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const movie = await getMovieDetails(693134);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url] = fetchMock.mock.calls[0];
+    expect(url.pathname).toBe("/3/movie/693134");
+    expect(url.searchParams.get("append_to_response")).toBe(
+      "credits,videos,release_dates",
+    );
+    expect(movie.cast.slice(0, 2)).toEqual([
+      { name: "Timothée Chalamet", character: "Paul Atreides" },
+      { name: "Zendaya", character: "Chani" },
+    ]);
+    expect(movie.cast).toHaveLength(8);
+    expect(movie.cast.map((person) => person.name)).not.toContain("  ");
+    expect(movie.trailer).toEqual({
+      name: "Official Trailer 3",
+      url: "https://www.youtube.com/watch?v=Way9Dexny3w",
+    });
+    expect(movie.availableFrom).toBe("2024-02-28");
+  });
+  it("uses neutral fallbacks when cast, trailer or dates are missing", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...rawMovie,
+        release_date: "",
+        videos: { results: [{ site: "Evil", type: "Trailer", key: "x" }] },
+      }),
+    );
+    const movie = await getMovieDetails(693134);
+    expect(movie.cast).toEqual([]);
+    expect(movie.trailer).toBeNull();
+    expect(movie.availableFrom).toBeNull();
+  });
   it("rejects adult details so they cannot be cached", async () => {
     fetchMock.mockResolvedValue(Response.json({ ...rawMovie, adult: true }));
     await expect(getMovieDetails(693134)).rejects.toMatchObject({

@@ -5,11 +5,19 @@ export type Movie = {
   year: number | null;
   genreIds: number[];
 };
+export type CastMember = { name: string; character: string | null };
+export type Trailer = { name: string; url: string };
 export type MovieDetails = Movie & {
   overview: string | null;
   runtime: number | null;
   genres: string[];
   releaseDate: string | null;
+  /** Earliest known release date anywhere (YYYY-MM-DD); null when unknown. */
+  availableFrom: string | null;
+  /** Principal cast in billing order. */
+  cast: CastMember[];
+  /** An external trailer link, opened only by explicit user action. */
+  trailer: Trailer | null;
   voteAverage: number | null;
   voteCount: number;
   stale?: boolean;
