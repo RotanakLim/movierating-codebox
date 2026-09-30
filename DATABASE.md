@@ -1,21 +1,20 @@
 # CodeBox Movies database
 
-Three ordered Supabase SQL migrations implement the requested core tables, RLS, constrained writes, and feed automation. They have **not** been applied to a hosted project.
+Ordered Supabase SQL migrations implement the requested core tables, RLS, constrained writes, and feed automation. They have **not** been applied to a hosted project.
 
 ## Apply
 
 Preferred workflow with the Supabase CLI, from this repository:
 
 ```sh
-npx supabase init
 npx supabase start
 # Local, disposable database only: reset recreates local data and applies migrations.
 npx supabase db reset
 ```
 
-`init` creates the local CLI configuration; it does not create hosted resources. A Docker-compatible runtime is required for the local Supabase stack. Keep `codebox_private` out of the API's exposed schemas.
+`supabase/config.toml` (from `supabase init`) is the local CLI configuration; it does not create hosted resources. After changing a migration, run `npm run db:types` to regenerate `src/lib/supabase/database.types.ts`. A Docker-compatible runtime is required for the local Supabase stack. Keep `codebox_private` out of the API's exposed schemas.
 
-When ready to apply to your own hosted project, inspect the SQL first and use:
+When ready to apply to your own hosted project, inspect the SQL first and follow the checklist in [README.md](README.md#apply-migrations-to-my-hosted-project):
 
 ```sh
 npx supabase login
@@ -24,16 +23,18 @@ npx supabase db push --dry-run
 npx supabase db push
 ```
 
-Alternatively, run the contents of all three migration files in the Supabase SQL Editor, in timestamp order, as the database administrator. Do not then reapply the same migrations through the CLI without first reconciling its migration history. No secrets belong in SQL files. Never run the test fixture on a live database.
+Alternatively, run the contents of every migration file in the Supabase SQL Editor, in timestamp order, as the database administrator. Do not then reapply the same migrations through the CLI without first reconciling its migration history. No secrets belong in SQL files. Never run the test fixture on a live database.
 
 Files:
 
 1. `supabase/migrations/20260929000100_core_tables.sql`: tables, enums, constraints, indexes, RLS enabled, explicit revocation of default client grants.
 2. `supabase/migrations/20260929000200_access_and_activity.sql`: policies, safe projections, lifecycle triggers, and follow RPCs. Also backfills profiles and watchlists for existing Auth users.
-
 3. `supabase/migrations/20260929000300_movie_request_limits.sql`: private request counters and a service-role-only quota RPC for movie search and selection.
+4. `supabase/migrations/20260930000100_remove_comparison_ranking.sql`: removes comparison buckets and positions.
+5. `supabase/migrations/20260930000200_remove_decimal_score.sql` and `20260930000300_decimal_score_only.sql`: switch the rating to a star scale and back; the net result is the decimal `score` as the only rating.
+6. `supabase/migrations/20260930000400_occasional_limit_cleanup.sql`: the quota RPC deletes day-old counters on about 1% of calls instead of every call.
 
-Selection uses `POST /api/movies/cache` with only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
+`POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
 Each migration is transactional and intended to run once through migration tracking. The first leaves tables inaccessible to clients until the second completes. SQL intentionally fails on conflicting existing tables instead of silently overwriting a different schema. Use forward migrations for later changes; rolling these tables back would destroy application data.
 
@@ -43,20 +44,20 @@ Each migration is transactional and intended to run once through migration track
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `users`      | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                  |
 | `movies`     | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                           |
-| `rankings`   | An editable watch/review entry: user_id, movie_id, score, note, watched_date; plus optional half-star opinion, spoiler flag, watched flag, timezone, version, timestamps. |
+| `rankings`   | An editable watch/review entry: user_id, movie_id, optional score, note, watched_date; plus spoiler flag, watched flag, timezone, version, timestamps.                    |
 | `follows`    | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship. |
 | `lists`      | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                       |
 | `list_items` | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                 |
 | `activity`   | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                               |
 | `blocks`     | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                        |
 
-### Rankings, repeat watches, and stars
+### Entries, repeat watches, and scores
 
-The requested `9.1` example is a decimal **ranking score from 0.0 to 10.0**. It is independent of the original SPEC's optional 1–5 half-star opinion (`star_half_units` 2–10). No arbitrary algorithm converts between the two. Numeric(3,1) stores one decimal place.
+The only rating is a **decimal score from 0.0 to 10.0** with one decimal place (e.g. 1.0, 5.0, 9.5), stored as `score numeric(3,1)`. NULL means unrated. There are no star ratings, buckets, comparisons, or manual ranking positions. `numeric(3,1)` rounds extra decimals, so server validation must reject values with more than one decimal place before writing. Migration `20260930000300_decimal_score_only.sql` removed the half-star rating, converting `star_half_units` 2–10 to scores 2.0–10.0 (4.5 stars = 9.0).
 
 A ranking row represents a diary/review entry, allowing repeat watches of the same movie. Do not add a unique `(user_id, movie_id)` constraint: that would discard the SPEC's history. Custom lists are separately stored in `lists`/`list_items`; visitors can independently sort a profile collection.
 
-`current_rankings` selects one **scored** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a score; deleting the current entry reveals the previous eligible one. A scored entry has a decimal score and/or half-star opinion; if the latest scored entry omits one scale, that scale is NULL rather than carried forward from a different entry. `public_current_ratings` exposes just the public scoring fields with the same precedence, without dates.
+`current_rankings` selects one **rated** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a rating; deleting the current entry reveals the previous eligible one. `public_current_ratings` exposes just the public rating fields with the same precedence, without dates.
 
 `watched_date = NULL` means unknown for a watched entry, and is required for an unwatched entry. The UI should supply local today and its IANA `watched_timezone`; the database checks that the date is not in the future in that timezone. SQL defaults to unknown date and UTC when these values are omitted. Watched-only entries and note-only entries are allowed; an entirely empty unwatched entry is rejected.
 
@@ -108,8 +109,7 @@ const { data, error } = await supabase
   .insert({
     id: entryId,
     movie_id: 693134, // Must already exist in the minimal cache.
-    score: 9.1,
-    star_half_units: 8, // Optional, separate 4-star opinion.
+    score: 9.5, // Optional: 0.0–10.0, one decimal place. NULL = unrated.
     note: "Beautiful film.",
     watched: true,
     watched_date: "2026-09-29", // UI supplies local today, or NULL for unknown.
@@ -155,7 +155,7 @@ await supabase
   .limit(20);
 ```
 
-For a Community feed, include only `ranked`/`reviewed` events. For Following, filter actors by the viewer's accepted outbound follows; RLS still rechecks each event. Cursor pagination should use `(created_at, id)`; relevant indexes are provided. Editing an entry updates its displayed score without adding a second event or bumping publication time.
+For a Community feed, include only `ranked`/`reviewed` events. For Following, filter actors by the viewer's accepted outbound follows; RLS still rechecks each event. Cursor pagination should use `(created_at, id)`; relevant indexes are provided. Editing an entry updates its displayed rating without adding a second event or bumping publication time.
 
 `request_follow` accepts public targets immediately and creates pending requests for restricted targets. Only the recipient can approve or decline. A decline has a 24-hour retry cooldown; removing or blocking/unblocking a declined relationship does not erase it. Follow and block operations serialize by user pair to avoid approval/block races. Blocking removes pending and accepted follows in both directions; unblocking does not restore them. Public content remains readable when signed out.
 

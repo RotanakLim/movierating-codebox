@@ -82,11 +82,12 @@ export default async function Home() {
             ))}
           </div>
           <div className="relative mt-10 rounded-2xl border border-line bg-surface p-5">
-            <div className="mb-3 flex gap-1 text-accent" aria-hidden="true">
-              {Array.from({ length: 5 }, (_, i) => (
-                <Star key={i} size={15} fill="currentColor" />
-              ))}
-            </div>
+            <p
+              className="mb-3 font-display text-lg text-accent"
+              aria-hidden="true"
+            >
+              9.5<span className="text-sm text-muted">/10</span>
+            </p>
             <p className="font-display text-2xl">
               Worth watching. Worth remembering.
             </p>
@@ -105,7 +106,7 @@ export default async function Home() {
           {
             Icon: Star,
             title: "Every opinion counts",
-            text: "Half-star ratings and room for the whole story.",
+            text: "Scores from 0.0 to 10.0 and room for the whole story.",
           },
           {
             Icon: Bookmark,

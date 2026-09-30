@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { MOVIE_GENRES, type MovieSearch, type Movie } from "@/lib/movies/types";
 import { MoviePoster } from "./poster";
-import { SelectMovie } from "./select-movie";
 
 type Results = {
   movies: Movie[];
@@ -346,6 +345,7 @@ export function MovieSearchPage() {
                       <MoviePoster
                         path={movie.posterPath}
                         title={movie.title}
+                        size="w342"
                       />
                     </Link>
                     <div className="mt-4">
@@ -357,11 +357,6 @@ export function MovieSearchPage() {
                       <p className="mt-1 text-xs text-muted">
                         {movie.year ?? "Year unknown"}
                       </p>
-                      <SelectMovie
-                        movieId={movie.id}
-                        title={movie.title}
-                        destination={destination}
-                      />
                     </div>
                   </article>
                 );

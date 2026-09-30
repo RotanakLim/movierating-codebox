@@ -8,8 +8,14 @@ export async function limitMovieRequest(
   headers: Pick<Headers, "get">,
   userId?: string,
 ) {
-  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!secret)
+  // Dedicated HMAC key: rotating it only resets quotas, and it never doubles as a
+  // database credential. Require at least 32 random bytes (64 hex characters).
+  const secret = process.env.RATE_LIMIT_SECRET?.trim();
+  if (
+    !secret ||
+    secret.length < 64 ||
+    secret === process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  )
     throw new MovieError(
       503,
       "Movie discovery is being set up. Please check back soon.",

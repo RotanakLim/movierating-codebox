@@ -10,3 +10,7 @@ test-results/
 .vercel/
 .DS_Store
 npm-debug.log*
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/

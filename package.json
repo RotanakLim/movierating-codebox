@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:db": "node scripts/test-database.mjs"
+    "test:db": "node scripts/test-database.mjs",
+    "db:types": "npx supabase gen types typescript --local > src/lib/supabase/database.types.ts && prettier --write src/lib/supabase/database.types.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

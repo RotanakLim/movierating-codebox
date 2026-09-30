@@ -125,12 +125,24 @@ describe("search route", () => {
     );
     expect(response.status).toBe(200);
     expect(mocks.user).not.toHaveBeenCalled();
+    // Search stays limited per client IP even though results are cached.
+    expect(mocks.limit).toHaveBeenCalledWith("search", expect.any(Headers));
     expect(mocks.search).toHaveBeenCalledWith({
       query: "dune",
       year: 2024,
       genre: null,
       page: 1,
     });
+  });
+  it("returns 429 without searching when the per-IP limit is spent", async () => {
+    mocks.limit.mockRejectedValue(
+      new MovieError(429, "Wait", "RATE_LIMITED", 30),
+    );
+    const response = await GET(
+      new NextRequest("https://codebox.test/api/movies/search?q=dune"),
+    );
+    expect(response.status).toBe(429);
+    expect(mocks.search).not.toHaveBeenCalled();
   });
   it("rejects invalid pagination before provider calls", async () => {
     const response = await GET(

@@ -14,16 +14,15 @@ const arrival = {
   genreIds: [878],
 };
 async function posterFixture(page: Page) {
-  await page.route("**/_next/image?**", (route) =>
+  // Posters load directly from TMDB's CDN, not through /_next/image.
+  await page.route("https://image.tmdb.org/t/p/**", (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600"><rect width="400" height="600" fill="#8c5d3b"/><circle cx="200" cy="200" r="90" fill="#d6b27c"/><path d="M0 480L240 310L400 420V600H0" fill="#332d2b"/></svg>',
     }),
   );
 }
-test("shows posters, year, filters and sends only the selected ID", async ({
-  page,
-}) => {
+test("shows posters, year and filters", async ({ page }) => {
   await posterFixture(page);
   await page.route("**/api/movies/search?**", (route) =>
     route.fulfill({
@@ -35,27 +34,18 @@ test("shows posters, year, filters and sends only the selected ID", async ({
       },
     }),
   );
-  await page.route("**/api/movies/cache", async (route) => {
-    expect(route.request().postDataJSON()).toEqual({ tmdbId: 693134 });
-    await route.fulfill({
-      status: 401,
-      json: { error: "Sign in to select a movie.", code: "SIGN_IN_REQUIRED" },
-    });
-  });
   await page.goto("/discover?q=Dune&year=2024");
-  await expect(
-    page.getByRole("img", { name: "Dune: Part Two poster" }),
-  ).toBeVisible();
+  const poster = page.getByRole("img", { name: "Dune: Part Two poster" });
+  await expect(poster).toBeVisible();
+  await expect(poster).toHaveAttribute(
+    "src",
+    "https://image.tmdb.org/t/p/w342/dune.jpg",
+  );
   await expect(page.getByText("Poster unavailable")).toBeVisible();
   await expect(
     page.getByRole("combobox", { name: "Release year" }),
   ).toHaveValue("2024");
-  await page
-    .getByRole("button", { name: "Select Dune: Part Two", exact: true })
-    .click();
-  await expect(
-    page.getByRole("link", { name: "Sign in to continue" }),
-  ).toHaveAttribute("href", /next=.*movies/);
+  await expect(page.getByRole("button", { name: /^Select / })).toHaveCount(0);
   await page.getByRole("combobox", { name: "Genre" }).selectOption("878");
   await expect(page).toHaveURL(/genre=878/);
   await page.setViewportSize({ width: 360, height: 800 });
@@ -168,37 +158,6 @@ test("debounces typing and never displays a stale search response", async ({
   await expect(
     page.getByRole("heading", { name: dune.title, exact: true }),
   ).toHaveCount(0);
-});
-test("selection retries after failure and suppresses double submission", async ({
-  page,
-}) => {
-  await page.route("**/api/movies/search?**", (route) =>
-    route.fulfill({
-      json: { movies: [arrival], page: 1, hasMore: false, filteredPage: false },
-    }),
-  );
-  let posts = 0;
-  await page.route("**/api/movies/cache", async (route) => {
-    posts++;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    await route.fulfill({
-      status: 503,
-      json: { error: "Selection failed. Try again." },
-    });
-  });
-  await page.goto("/discover");
-  const button = page.getByRole("button", {
-    name: "Select Arrival",
-    exact: true,
-  });
-  await button.click();
-  await expect(button).toBeDisabled();
-  await expect(
-    page.getByText("Selection failed. Try again.", { exact: true }),
-  ).toBeVisible();
-  expect(posts).toBe(1);
-  await button.click();
-  await expect.poll(() => posts).toBe(2);
 });
 test("search alias preserves filters and real unconfigured endpoint is safe", async ({
   page,

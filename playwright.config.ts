@@ -11,6 +11,7 @@ export default defineConfig({
       NEXT_PUBLIC_SUPABASE_URL: "",
       TMDB_API_READ_ACCESS_TOKEN: "",
       SUPABASE_SERVICE_ROLE_KEY: "",
+      RATE_LIMIT_SECRET: "",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
       NEXT_PUBLIC_SITE_URL: "http://127.0.0.1:3100",
     },

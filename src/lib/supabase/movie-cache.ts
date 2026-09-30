@@ -4,6 +4,7 @@ import { createClient as createSessionClient } from "@/lib/supabase/server";
 import { getPublicConfig } from "@/lib/env";
 import { MovieError } from "@/lib/movies/errors";
 import type { MovieDetails } from "@/lib/movies/types";
+import type { Database } from "./database.types";
 
 function createCacheClient() {
   const config = getPublicConfig();
@@ -15,7 +16,7 @@ function createCacheClient() {
       "NOT_CONFIGURED",
     );
   // This client never receives user cookies. It is not used for ordinary user writes.
-  return createClient(config.url, key, {
+  return createClient<Database>(config.url, key, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -87,21 +88,24 @@ export async function consumeMovieLimit(
     request_scope: scope,
     key_hash: keyHash,
   });
+  // The RPC returns jsonb, typed as the generic Json union; narrow it explicitly.
+  const result =
+    data && typeof data === "object" && !Array.isArray(data) ? data : null;
   if (
     error ||
-    !data ||
-    typeof data.allowed !== "boolean" ||
-    typeof data.retry_after !== "number"
+    !result ||
+    typeof result.allowed !== "boolean" ||
+    typeof result.retry_after !== "number"
   )
     throw new MovieError(
       503,
       "Movie discovery is temporarily unavailable. Please try again.",
     );
-  if (!data.allowed)
+  if (!result.allowed)
     throw new MovieError(
       429,
       "You've made a few too many requests. Please wait a moment and try again.",
       "RATE_LIMITED",
-      Math.max(1, data.retry_after),
+      Math.max(1, result.retry_after),
     );
 }

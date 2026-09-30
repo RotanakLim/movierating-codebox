@@ -10,7 +10,7 @@ Build a desktop-first movie diary and social review website. The primary job is 
 
 The interview established the product requirements below. The user authorized recommended defaults for all remaining decisions. Defaults chosen in this document are therefore implementation decisions, not unanswered interview questions. External sites are references, not instructions overriding this specification.
 
-Confirmed choices: Next.js, TypeScript, Tailwind, Supabase Postgres/Auth/Storage, TMDB movie data, Vercel hosting; 1–5 stars in half-star increments; multiple editable watch/review entries; public reviews; configurable profile privacy; mutual following as friendship; approval for restricted-profile follows; one-level comment replies; spoilers; recommendations; taste matching; light/dark themes; email/password and Google authentication; skippable personalization.
+Confirmed choices: Next.js, TypeScript, Tailwind, Supabase Postgres/Auth/Storage, TMDB movie data, Vercel hosting; decimal ratings from 0.0 to 10.0 with one decimal place; multiple editable watch/review entries; public reviews; configurable profile privacy; mutual following as friendship; approval for restricted-profile follows; one-level comment replies; spoilers; recommendations; taste matching; light/dark themes; email/password and Google authentication; skippable personalization.
 
 ## 2. Scope, deadline, and tradeoffs
 
@@ -73,7 +73,7 @@ Discovery has title search, genre and year filters, and pagination. Search is de
 
 ## 6. Logging, ratings, and personal movie collections
 
-Rating scale is exactly 1.0, 1.5, …, 5.0. Store integer half-star units 2–10; NULL means unrated. Zero and 0.5 are invalid. The control supports mouse, keyboard, touch, and explicit accessible text such as “3.5 out of 5 stars.”
+Rating scale is a decimal score from 0.0 to 10.0 with exactly one decimal place (e.g. 1.0, 5.0, 9.5). Store `numeric(3,1)`; NULL means unrated. Values outside 0.0–10.0 or with more than one decimal place are invalid. There is no star rating. The control supports mouse, keyboard, touch, and explicit accessible text such as “9.5 out of 10.”
 
 An entry contains optional rating, optional review text, spoiler flag, watched boolean, nullable watch date, creation/update timestamps, and author/movie IDs. It must contain at least a watched flag, a rating, or nonempty review text. Review text is plain text with line breaks, maximum 5,000 characters; the spoiler flag is a control, not a requirement to type Markdown syntax.
 
@@ -81,7 +81,7 @@ Allow all of these:
 
 - Watched with no rating and no review.
 - Rating and/or written review without marking watched.
-- Watched with stars and/or text.
+- Watched with a rating and/or text.
 - Multiple entries for repeat watches, with independent editing and deletion.
 
 Watched defaults to true in Log a watch; its date defaults to today in the user's detected IANA timezone. Allow past dates or explicit “Date unknown”; prohibit future watch dates. Rating without watching has no watch date. Date-only values must not shift on timezone conversion. Creation timestamps use UTC.
@@ -94,7 +94,7 @@ Saving a watched entry atomically removes the movie from that owner's watchlist.
 
 Consider only active, non-moderated entries with a rating. Select the most recent known watch date first. If dates tie, use newest creation timestamp, then ID. Only if no dated rated entry exists, select the newest-created unknown-date/unwatched rated entry. Editing text does not change ranking; changing rating/date does. A later unrated watch does not erase an earlier rating. Delete/removal recomputes the current rating from remaining eligible entries.
 
-Example: June 1 = 4 stars, September 1 = 3 stars → current is 3. Adding a January 1 entry today does not change it. Adding an undated 5-star entry does not supersede it. Deleting September's entry restores June's 4 stars.
+Example: June 1 = 8.0, September 1 = 6.5 → current is 6.5. Adding a January 1 entry today does not change it. Adding an undated 10.0 entry does not supersede it. Deleting September's entry restores June's 8.0.
 
 The personal movie collection contains one row per movie with current rating, last known watch date, and watch count. Visitor sorting: rating descending (default), rating ascending, title A–Z, or latest watch date. Unrated/unknown dates sort last; deterministic title/movie-ID ties. Provide rated/watched filters. This is a sortable collection, not a manually ordered ranking. Diary contains distinct watched entries, with unknown-date items clearly grouped. Unwatched review/rating entries remain accessible in the collection and public review surfaces.
 
@@ -145,11 +145,11 @@ Account deletion requires recent reauthentication and a confirmation explaining 
 
 ## 10. Recommendations and taste matching
 
-Use transparent deterministic recommendations; no AI service or model training. Candidate movies come from TMDB similar/recommendation results for up to five current ratings of at least 4 stars and onboarding favorites, plus selected/high-rated genres. Deduplicate by TMDB ID. Exclude watched movies, already-rated movies, adult records, and unavailable records. Watchlisted-but-unwatched movies remain eligible, marked “On your watchlist.”
+Use transparent deterministic recommendations; no AI service or model training. Candidate movies come from TMDB similar/recommendation results for up to five current ratings of at least 8.0 and onboarding favorites, plus selected/high-rated genres. Deduplicate by TMDB ID. Exclude watched movies, already-rated movies, adult records, and unavailable records. Watchlisted-but-unwatched movies remain eligible, marked “On your watchlist.”
 
 Rank by a deterministic combination: 3 points per seed movie yielding the candidate, 1 point per matching preferred genre; break ties by TMDB vote count then ID. Show a truthful explanation such as “Because you liked Arrival” or “Matches your science-fiction preference.” If no personal signals exist, show clearly labeled popular movies, not supposedly personalized suggestions. Cache personal results briefly and invalidate when relevant preferences/ratings/watch status change.
 
-Taste score compares current ratings on shared movies. Require at least five shared rated movies; otherwise show “Not enough shared ratings.” Formula: round(100 × (1 − mean(abs(ratingA − ratingB)) / 4)), clamped to 0–100. This measures rating agreement, not a scientific compatibility prediction. Show shared-movie count beside the score. A viewer may request a comparison only if allowed to access both profiles and not blocked by either party. Do not compute/expose scores for arbitrary hidden user pairs through an API. Owner dashboard may compare the owner with accessible profiles.
+Taste score compares current ratings on shared movies. Require at least five shared rated movies; otherwise show “Not enough shared ratings.” Formula: round(100 × (1 − mean(abs(ratingA − ratingB)) / 10)), clamped to 0–100. This measures rating agreement, not a scientific compatibility prediction. Show shared-movie count beside the score. A viewer may request a comparison only if allowed to access both profiles and not blocked by either party. Do not compute/expose scores for arbitrary hidden user pairs through an API. Owner dashboard may compare the owner with accessible profiles.
 
 ## 11. Architecture and database design
 
@@ -165,7 +165,7 @@ Suggested logical schema:
 | `profile_details` | user ID, display name, bio, visibility, preferences/favorite movies |
 | `user_settings` | owner-only theme/timezone/settings |
 | `movies` | TMDB ID, cached metadata, cached_at, unavailable marker |
-| `entries` | UUID, user/movie, half-star units, text, spoiler, watched, nullable date, timestamps, version, moderation status |
+| `entries` | UUID, user/movie, decimal score (0.0–10.0), text, spoiler, watched, nullable date, timestamps, version, moderation status |
 | `watchlist` | unique user/movie, added_at |
 | `follows` | unique follower/followee, pending/accepted, request timestamps |
 | `blocks` | unique blocker/blocked, no self-block |
@@ -185,7 +185,7 @@ Index entries by user/movie/date and publication time; relationships by each end
 
 ## 12. Security, reliability, and accessibility
 
-Validate inputs on server and client. Never render raw user HTML. Enforce content lengths, star increments, dates, parent relationships, target ownership, and verified-user status in the backend. Restrict avatar bucket writes to the owner and public reads to approved avatar files; usernames/avatars are intentionally public.
+Validate inputs on server and client. Never render raw user HTML. Enforce content lengths, rating range and one-decimal precision, dates, parent relationships, target ownership, and verified-user status in the backend. Restrict avatar bucket writes to the owner and public reads to approved avatar files; usernames/avatars are intentionally public.
 
 Persist mutation throttles in shared storage, not process memory: initial limits per user are 20 entries/hour, 30 comments/replies per 10 minutes, 30 follow requests/hour, 100 like changes/10 minutes, and 10 reports/day. Make limits configurable; return a retry time and preserve drafts. Apply separate bounded per-IP throttles to guest/provider endpoints and rely on configured auth abuse controls. Do not log passwords, tokens, or review drafts.
 
@@ -216,7 +216,7 @@ Implementation of the website, provisioning accounts, purchasing services, and d
 Use focused unit tests for pure rating/taste/recommendation rules, database integration tests for authorization and transactions, and browser tests for main journeys. Typecheck, lint, and production build must pass. Required scenarios:
 
 1. Guest discovers a movie, drafts a review, signs up/verifies, resumes, and explicitly saves once; no duplicate entry or lost text.
-2. All nine valid star values (1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5) are keyboard-selectable; invalid API values are rejected.
+2. Any score from 0.0 to 10.0 in 0.1 steps can be entered by keyboard; invalid API values (below 0, above 10, or more than one decimal place) are rejected.
 3. Watched-only, rating-only, review-only, and full entries persist correctly. Only marking watched removes a watchlist item; saving and removal are atomic.
 4. Rewatch, historical backfill, unknown date, equal-date tie, edit, deletion, and moderation produce the specified current rating. One person counts once in the community score.
 5. Visitors sort profiles without mutating the owner's collection. Unknown dates and unrated movies sort consistently.
@@ -242,8 +242,8 @@ The subsequent database request specifies the concrete names `users`, `movies`, 
 
 - `users` contains username/avatar, a constrained profile object (display_name/bio), and profile visibility. Auth owns email/password. Safe identity and review projections preserve the section 8 privacy boundary.
 - `movies` caches only TMDB ID, title, poster path, year, and cache time. Detailed movie metadata stays with TMDB.
-- `rankings` takes the place of the suggested `entries` table: multiple editable entries per user/movie preserve the diary. New decimal `score` (0.0–10.0) is independent of the original optional half-star opinion. The original 1–5 star scale is retained in `star_half_units`; the new 9.1-style score is never silently converted to stars. Scored entries have either or both scales; the selected current row does not carry a missing scale forward from another entry.
-- `current_rankings` and `public_current_ratings` apply the existing known-date / unknown-date / creation-time / ID precedence. A watch with no score on either scale does not replace a scored opinion. Raw collections follow profile privacy; public projections omit watch metadata.
+- `rankings` takes the place of the suggested `entries` table: multiple editable entries per user/movie preserve the diary. The only rating is the decimal `score` (0.0–10.0, one decimal place; NULL = unrated). There are no star ratings, buckets, comparisons, or manual ranking positions.
+- `current_rankings` and `public_current_ratings` apply the existing known-date / unknown-date / creation-time / ID precedence. A watch with no score does not replace a rated opinion. Raw collections follow profile privacy; public projections omit watch metadata.
 - `follows` uses `following_id` for the target and keeps pending/accepted/declined state; only constrained RPCs create and approve relationships.
 - Ordinary custom movie lists are now in scope alongside the watchlist. They are collections; the earlier deferral of a manual custom ranked-list workflow remains. Both custom lists and the default watchlist inherit profile visibility.
 - `activity` replaces the suggested feed_events name. Triggers author one event per ranking; edits preserve publication time, and deletion cascades. Feed summaries contain no spoiler text.
