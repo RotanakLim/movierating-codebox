@@ -2,7 +2,14 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { MovieError } from "./errors";
 import { movieId, posterPath, releaseYear } from "./validation";
-import type { Movie, MovieDetails, MovieFilters, MovieSearch } from "./types";
+import type {
+  CastMember,
+  Movie,
+  MovieDetails,
+  MovieFilters,
+  MovieSearch,
+  Trailer,
+} from "./types";
 
 type JsonObject = Record<string, unknown>;
 function object(value: unknown): JsonObject {
@@ -158,9 +165,80 @@ export async function searchMovies(filters: MovieFilters) {
   return cachedSearch(filters);
 }
 
+const PRINCIPAL_CAST = 8;
+function text(value: unknown, max: number) {
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, max)
+    : null;
+}
+function parseCast(credits: unknown): CastMember[] {
+  const cast = object(credits).cast;
+  if (!Array.isArray(cast)) return [];
+  return cast
+    .map(object)
+    .filter((person) => text(person.name, 100))
+    .sort((a, b) => Number(a.order ?? 999) - Number(b.order ?? 999))
+    .slice(0, PRINCIPAL_CAST)
+    .map((person) => ({
+      name: text(person.name, 100)!,
+      character: text(person.character, 100),
+    }));
+}
+// Only well-formed keys on known hosts become links; never embed or autoplay.
+function trailerUrl(site: unknown, key: unknown) {
+  if (typeof key !== "string") return null;
+  if (site === "YouTube" && /^[A-Za-z0-9_-]{6,20}$/.test(key))
+    return `https://www.youtube.com/watch?v=${key}`;
+  if (site === "Vimeo" && /^\d{1,12}$/.test(key))
+    return `https://vimeo.com/${key}`;
+  return null;
+}
+function parseTrailer(videos: unknown): Trailer | null {
+  const results = object(videos).results;
+  if (!Array.isArray(results)) return null;
+  const trailers = results
+    .map(object)
+    .filter((video) => video.type === "Trailer")
+    .map((video) => ({
+      official: video.official === true,
+      name: text(video.name, 120) ?? "Trailer",
+      url: trailerUrl(video.site, video.key),
+    }))
+    .filter(
+      (video): video is { official: boolean; name: string; url: string } =>
+        Boolean(video.url),
+    );
+  const best = trailers.find((video) => video.official) ?? trailers[0];
+  return best ? { name: best.name, url: best.url } : null;
+}
+const DATE = /^\d{4}-\d{2}-\d{2}/;
+/** Earliest known release date across countries and the primary release date. */
+function earliestRelease(
+  primary: unknown,
+  releaseDates: unknown,
+): string | null {
+  const dates: string[] = [];
+  if (typeof primary === "string" && DATE.test(primary))
+    dates.push(primary.slice(0, 10));
+  const countries = object(releaseDates).results;
+  if (Array.isArray(countries))
+    for (const country of countries.map(object))
+      if (Array.isArray(country.release_dates))
+        for (const release of country.release_dates.map(object))
+          if (
+            typeof release.release_date === "string" &&
+            DATE.test(release.release_date)
+          )
+            dates.push(release.release_date.slice(0, 10));
+  return dates.sort()[0] ?? null;
+}
+
 const cachedDetails = unstable_cache(
   async (id: number): Promise<MovieDetails> => {
-    const raw = await requestTmdb(`/movie/${movieId(id)}`, {});
+    // One request: details plus credits, videos and release dates.
+    const raw = await requestTmdb(`/movie/${movieId(id)}`, {
+      append_to_response: "credits,videos,release_dates",
+    });
     const movie = parseMovie(raw);
     if (!movie || movie.id !== id)
       throw new MovieError(
@@ -201,9 +279,13 @@ const cachedDetails = unstable_cache(
         raw.vote_count > 0
           ? raw.vote_count
           : 0,
+      availableFrom: earliestRelease(raw.release_date, raw.release_dates),
+      cast: parseCast(raw.credits),
+      trailer: parseTrailer(raw.videos),
     };
   },
-  ["tmdb-movie-details-v1"],
+  // v2: adds cast, trailer and availableFrom; old cached shapes are not reused.
+  ["tmdb-movie-details-v2"],
   { revalidate: 86400 },
 );
 export async function getMovieDetails(id: number) {

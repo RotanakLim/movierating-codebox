@@ -1,11 +1,9 @@
 "use server";
-import { headers } from "next/headers";
 import { getUser } from "@/lib/auth/user";
 import { createClient } from "@/lib/supabase/server";
-import { cacheMovie } from "@/lib/supabase/movie-cache";
-import { getMovieDetails } from "@/lib/movies/tmdb";
-import { limitMovieRequest } from "@/lib/movies/limits";
+import { ensureMovieCached } from "@/lib/movies/ensure-cached";
 import { MovieError } from "@/lib/movies/errors";
+import { formatDate, todayIn } from "@/lib/entries/dates";
 import { readUsername } from "@/lib/onboarding/profile";
 import { entryInputSchema } from "@/lib/entries/schema";
 import type { SaveEntryErrorCode, SaveEntryResult } from "@/lib/entries/types";
@@ -44,16 +42,17 @@ export async function saveEntry(input: unknown): Promise<SaveEntryResult> {
 
   // Entries reference movies: cache authoritative TMDB metadata if it's missing.
   try {
-    const { data: cached, error } = await supabase
-      .from("movies")
-      .select("tmdb_id")
-      .eq("tmdb_id", entry.movieId)
-      .maybeSingle();
-    if (error) return unavailable();
-    if (!cached) {
-      await limitMovieRequest("selection", await headers(), user.id);
-      await cacheMovie(await getMovieDetails(entry.movieId));
-    }
+    const details = await ensureMovieCached(supabase, entry.movieId, user.id);
+    // Contributions open on the earliest known release date, in the viewer's
+    // timezone. An unknown date (or TMDB being unreachable) does not block them.
+    if (
+      details?.availableFrom &&
+      details.availableFrom > todayIn(entry.timeZone)
+    )
+      return fail(
+        "NOT_RELEASED",
+        `Ratings, reviews and watch logs open on ${formatDate(details.availableFrom)}.`,
+      );
   } catch (error) {
     if (error instanceof MovieError)
       return fail(

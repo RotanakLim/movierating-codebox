@@ -166,10 +166,59 @@ describe("saveEntry sign-in and setup checks", () => {
 });
 
 describe("saveEntry movie cache", () => {
-  it("does not refetch a movie that is already cached", async () => {
+  it("does not re-cache a movie that is already cached", async () => {
+    mocks.details.mockResolvedValue({
+      id: 693134,
+      availableFrom: "2024-02-28",
+    });
     await saveEntry(valid);
-    expect(mocks.details).not.toHaveBeenCalled();
     expect(mocks.cache).not.toHaveBeenCalled();
+    expect(mocks.limit).not.toHaveBeenCalled();
+  });
+  it("rejects entries before the earliest known release date", async () => {
+    mocks.details.mockResolvedValue({
+      id: 693134,
+      availableFrom: "2999-01-01",
+    });
+    const result = await saveEntry(valid);
+    expect(result).toMatchObject({ ok: false, code: "NOT_RELEASED" });
+    expect(result.ok || result.error).toContain("Jan 1, 2999");
+    expect(ops("entries", "insert")).toHaveLength(0);
+  });
+  it("uses the viewer's timezone for the release day", async () => {
+    // Released "today" in Tokyo, still "tomorrow" in Los Angeles at this instant.
+    vi.useFakeTimers({
+      now: new Date("2026-09-30T20:00:00Z"),
+      toFake: ["Date"],
+    });
+    mocks.details.mockResolvedValue({
+      id: 693134,
+      availableFrom: "2026-10-01",
+    });
+    try {
+      expect(
+        await saveEntry({
+          ...valid,
+          timeZone: "Asia/Tokyo",
+          watchedDate: null,
+        }),
+      ).toMatchObject({ ok: true });
+      expect(
+        await saveEntry({
+          ...valid,
+          timeZone: "America/Los_Angeles",
+          watchedDate: null,
+        }),
+      ).toMatchObject({ code: "NOT_RELEASED" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("does not block entries when the release date is unknown or TMDB is down", async () => {
+    mocks.details.mockResolvedValue({ id: 693134, availableFrom: null });
+    expect(await saveEntry(valid)).toMatchObject({ ok: true });
+    mocks.details.mockRejectedValue(new Error("TMDB down"));
+    expect(await saveEntry(valid)).toMatchObject({ ok: true });
   });
   it("caches TMDB metadata first when the movie is missing", async () => {
     mocks.respond.mockImplementation((call: Call) =>

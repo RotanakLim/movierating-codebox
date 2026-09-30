@@ -35,6 +35,7 @@ Files:
 6. `supabase/migrations/20260930000400_occasional_limit_cleanup.sql`: the quota RPC deletes day-old counters on about 1% of calls instead of every call.
 7. `supabase/migrations/20260930000500_onboarding.sql`: `codebox_private.valid_username()` (the single source of username rules, now used by `users_username_format`), the `username_status()` availability RPC, owner-only `user_preferences` (favorite genres) and `user_favorite_movies` (up to five), and the `set_favorite_movies()` RPC.
 8. `supabase/migrations/20260930000600_entries.sql`: renames `rankings` → `entries`, `current_rankings` → `current_entries`, `activity.ranking_id` → `entry_id`, the `ranked` activity kind → `rated`, and the guard/sync functions, constraints, indexes, policies and triggers to match. `score` becomes plain `numeric` so the database rejects extra decimals instead of rounding them.
+9. `supabase/migrations/20260930000700_movie_rating_summary.sql`: `movie_rating_summary(movie_id)` returns the community average (0.0–10.0, one decimal) and rater count from one current score per author, using `current_entries` precedence. It is security definer so blocks never change it and restricted-profile authors' public scores count; it exposes only the two aggregates. Adds a partial index for it.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -62,6 +63,8 @@ The only rating is a **decimal score from 0.0 to 10.0** with one decimal place (
 A ranking row represents a diary/review entry, allowing repeat watches of the same movie. Do not add a unique `(user_id, movie_id)` constraint: that would discard the SPEC's history. Custom lists are separately stored in `lists`/`list_items`; visitors can independently sort a profile collection.
 
 `current_entries` selects one **rated** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a rating; deleting the current entry reveals the previous eligible one. `public_current_ratings` exposes just the public rating fields with the same precedence, without dates.
+
+The movie page's community average comes from `movie_rating_summary()`, never from averaging `public_current_ratings`, because that view hides authors the viewer blocked or was blocked by. Reviews on the movie page read `public_reviews` (which does apply blocks) newest first with keyset pagination on `(created_at, id)`, 20 per page; no watch dates or watched status are ever selected.
 
 `watched_date = NULL` means unknown for a watched entry, and is required for an unwatched entry. The UI should supply local today and its IANA `watched_timezone`; the database checks that the date is not in the future in that timezone. SQL defaults to unknown date and UTC when these values are omitted. Watched-only entries and note-only entries are allowed; an entirely empty unwatched entry is rejected.
 

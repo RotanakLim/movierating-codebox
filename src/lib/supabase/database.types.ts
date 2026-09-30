@@ -705,6 +705,13 @@ export type Database = {
         Args: { key_hash: string; request_scope: string };
         Returns: Json;
       };
+      movie_rating_summary: {
+        Args: { target_movie_id: number };
+        Returns: {
+          average: number;
+          raters: number;
+        }[];
+      };
       remove_follow: {
         Args: { direction?: string; other_id: string };
         Returns: undefined;

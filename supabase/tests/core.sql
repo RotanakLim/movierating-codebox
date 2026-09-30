@@ -375,3 +375,31 @@ select codebox_test.ok((select count(*) = 1 from public.list_items i join public
 update public.entries set watched = true, watched_date = current_date where id = '30000000-0000-0000-0000-000000000001';
 select codebox_test.ok((select count(*) = 0 from public.list_items i join public.lists l on l.id = i.list_id where l.user_id = auth.uid() and i.movie_id = 27205), 'marking an entry watched removes the watchlist item atomically');
 reset role;
+
+-- Community average: one current score per author, viewer-independent.
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000008', now()),
+ ('00000000-0000-0000-0000-000000000009', now()),
+ ('00000000-0000-0000-0000-000000000010', now());
+update public.users set username = 'avg_a' where id = '00000000-0000-0000-0000-000000000008';
+update public.users set username = 'avg_b', visibility = 'private' where id = '00000000-0000-0000-0000-000000000009';
+update public.users set username = 'avg_c' where id = '00000000-0000-0000-0000-000000000010';
+insert into public.movies(tmdb_id, title) values (999001, 'Aggregate Test'), (999002, 'Unrated Test');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000008', false);
+insert into public.entries(movie_id, score, watched_date) values (999001, 4.0, '2026-01-01'), (999001, 8.0, '2026-06-01');
+insert into public.entries(movie_id, score, watched_date) values (999001, 2.0, null);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000009', false);
+insert into public.entries(movie_id, score, watched) values (999001, 6.5, false);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000010', false);
+insert into public.entries(movie_id, watched, watched_date) values (999001, true, current_date);
+select codebox_test.ok((select average = 7.3 and raters = 2 from public.movie_rating_summary(999001)), 'average uses one current score per author, including private profiles, rounded to one decimal');
+select codebox_test.ok((select average is null and raters = 0 from public.movie_rating_summary(999002)), 'unrated movie has no average and zero raters');
+insert into public.blocks(blocked_id) values ('00000000-0000-0000-0000-000000000008');
+select codebox_test.ok((select count(*) = 1 from public.public_current_ratings where movie_id = 999001), 'viewer-filtered projection hides the blocked author');
+select codebox_test.ok((select average = 7.3 and raters = 2 from public.movie_rating_summary(999001)), 'blocking does not change the community average');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.ok((select raters = 2 from public.movie_rating_summary(999001)), 'guests can read the community average');
+select codebox_test.ok((select count(*) = 0 from public.entries where user_id = '00000000-0000-0000-0000-000000000009'), 'the aggregate does not expose the private author''s entry to guests');
+reset role;
