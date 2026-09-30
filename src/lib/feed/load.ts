@@ -12,7 +12,7 @@ import {
 
 type Client = SupabaseClient<Database>;
 const COLUMNS =
-  "id, kind, created_at, username, avatar, movie_id, title, poster, year, score";
+  "id, entry_id, kind, created_at, username, avatar, movie_id, title, poster, year, score";
 
 /**
  * One page of a feed, newest first, keyset-paginated by (created_at, id).
@@ -50,6 +50,7 @@ export async function loadFeed(
   const rows = data.slice(0, FEED_PAGE_SIZE);
   const items: FeedItem[] = rows.flatMap((row) =>
     row.id &&
+    row.entry_id &&
     row.created_at &&
     row.username &&
     row.movie_id &&
@@ -58,6 +59,7 @@ export async function loadFeed(
       ? [
           {
             id: row.id,
+            entryId: row.entry_id,
             kind: row.kind,
             createdAt: row.created_at,
             user: { username: row.username, avatar: row.avatar },

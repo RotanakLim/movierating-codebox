@@ -264,4 +264,6 @@ The subsequent database request specifies the concrete names `users`, `movies`, 
 
 - Social (September 30): the home feeds read `activity_feed` (Community: public ratings and reviews) and a `following_feed` view (accepted follows, with profile access checked per row). People search is the `find_people()` function. Follow requests are limited to 30 per user per hour in the database.
 
+- Review discussions (September 30): `review_likes` and `review_comments` (top-level plus one reply level, `reply_to_user_id` for replies to replies, tombstones for deleted comments with replies) implement the suggested `review_likes` and `comments` tables (named `review_comments`). Clients reach them only through database functions that enforce visibility, blocks, ancestry and limits (100 like changes and 30 comments per 10 minutes).
+
 The migrations implement this database subset, not the complete product. The comment, notification and aggregate/taste features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.

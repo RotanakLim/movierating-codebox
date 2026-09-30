@@ -24,7 +24,7 @@ export type QueueReport = {
   details: string | null;
   createdAt: string;
   resolvedAt: string | null;
-  kind: "user" | "review";
+  kind: "user" | "review" | "comment";
   reporter: string | null;
   targetUserId: string | null;
   targetUsername: string | null;
@@ -37,6 +37,13 @@ export type QueueReport = {
   score: number | null;
   note: string | null;
   spoiler: boolean;
+  /** For comment reports: the comment, its review, and a snapshot if deleted. */
+  commentId: string | null;
+  commentReviewId: string | null;
+  commentBody: string | null;
+  commentSpoiler: boolean;
+  commentHidden: boolean;
+  commentDeleted: boolean;
 };
 
 export type AuditEntry = {
@@ -47,6 +54,7 @@ export type AuditEntry = {
   admin: string | null;
   target: string | null;
   entryId: string | null;
+  commentId: string | null;
 };
 
 /** ?status= for the queue page; anything unknown shows open reports. */

@@ -76,10 +76,10 @@ export function FeedCard({ item }: { item: FeedItem }) {
         <p className="mt-2 flex flex-wrap gap-x-3 text-xs text-muted">
           <time dateTime={item.createdAt}>{when(item.createdAt)}</time>
           {item.kind !== "watched" && (
-            <Link href={`/movies/${item.movie.id}`} className="hover:text-ink">
+            <Link href={`/reviews/${item.entryId}`} className="hover:text-ink">
               {item.kind === "reviewed"
-                ? "Read on the movie page"
-                : "See reviews"}
+                ? "Read review"
+                : "Likes and discussion"}
             </Link>
           )}
         </p>

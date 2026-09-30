@@ -150,6 +150,17 @@ The flow is app → Supabase → Google → Supabase → app `/auth/callback`. T
   - Everyone else sees a restricted shell: username, avatar, a restriction message, and follow/request, block and report controls.
   - Block explains that follows are removed and that public content stays visible to signed-out visitors.
   - Reports return a receipt and are never readable by clients.
+- `/reviews/[id]`: a public review page for any rating or review the viewer may see. Movie-page review cards and feed cards link here.
+  - The page shows the score, the review (spoilers stay behind a reveal), and a like count from the database. Metadata uses only the username, movie and score, never review text.
+  - **Likes:** one per user, reversible, and never on your own review. The count changes at once and settles on the database's answer, or rolls back with a message if refused.
+  - **Discussion:** threads oldest first, 20 per page, each with its first 3 replies and "Show more replies" (keyset pagination by `(created_at, id)` via `GET /api/reviews/[id]/comments` and `…/comments/replies?thread=`).
+    - Only one reply level: replying to a reply posts in the same thread with "replying to @user".
+    - Comments are plain text up to 2,000 characters, each with its own spoiler flag.
+    - Owners can edit (shown as "edited") or delete. A deleted comment that still has replies shows "[deleted]"; comments hidden by moderators show "[removed by a moderator]".
+    - Others can report a comment or reply.
+  - **Owner:** "Edit review" opens the movie-page composer. "Delete review" confirms with the number of likes and comments that go with it.
+  - **Others:** Report, and Block (which leaves the page).
+  - Guests can read everything and get sign-in links for liking and commenting.
 - Review cards on movie pages, for signed-in viewers other than the author:
   - **Report** takes a reason, optional details (up to 1,000 characters) and gives a receipt.
   - **Block @user** shows the same disclosure as profiles. The author's reviews then disappear from the list, with an **Unblock** undo.
@@ -188,6 +199,8 @@ The database stores these limits and enforces them per account, so direct API ca
 - New entries: 20 per hour (edits aren't limited).
 - Reports: 10 per day.
 - Follow requests: 30 per hour. Only new or renewed requests count; asking again about an existing follow doesn't.
+- Like changes: 100 per 10 minutes (no-op likes don't count).
+- Comments and replies: 30 per 10 minutes (edits and deletes aren't limited).
 - Avatar uploads: 10 per hour.
 - Password re-checks: 5 per 15 minutes.
 - Movie search and selection: see "Movie discovery setup".
@@ -199,7 +212,7 @@ To change the entry or report limits, run SQL like this in the Supabase SQL Edit
 ```sql
 update codebox_private.action_limit_settings
 set max_actions = 30, window_seconds = 3600   -- 30 new entries per hour
-where action = 'entry';   -- or 'report' (10 per 86400 s) or 'follow' (30 per 3600 s)
+where action = 'entry';   -- or 'report', 'follow', 'like' (100 per 600 s), 'comment' (30 per 600 s)
 ```
 
 ### Make yourself an admin
@@ -237,17 +250,17 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
   - Public reviews that stay visible when a profile is restricted.
 - Safety:
   - Blocking from profiles and review cards.
-  - Reports on users and reviews.
+  - Reports on users, reviews, comments and replies.
   - The admin queue with audited dismiss, hide, suspend and restore.
   - Persisted limits on new entries, reports, follow requests, avatars and password re-checks.
 - Home: Following and Community feeds with cursor pagination and a find-people prompt for new users.
+- `/reviews/[id]`: likes; one-level comment threads with spoiler flags, owner edit and delete, and "[deleted]" placeholders; deleting a review removes its likes and discussion.
 - Light and dark themes with no flash, and no horizontal scrolling at 360 px.
 
 **Not built yet** (SPEC's social and personalization milestones)
 
 - The full notification inbox. `/notifications` shows follow activity only: no comment or reply notifications, no unread state, no polling.
-- `/reviews/[id]` review pages.
-- Review likes, comments and replies (so there's nothing to report or block there yet).
+- Movie review lists: "most liked" and Following filters (only newest first and written-only exist).
 - Recommendations and taste matching.
 - The contextual right column on wide screens.
 
@@ -255,6 +268,7 @@ This is an honest snapshot against SPEC section 2's core preview list. "Done" me
 
 - Users aren't told when a moderator hides their review or suspends them. The author still sees a hidden review as normal, and suspended users only find out when an action is refused.
 - There is no appeal flow; restores happen only from `/admin/reports`.
+- Spoiler reviews and comments are hidden in the page and from screen readers until revealed, and never appear in metadata or feeds. Their text is still included in the page's serialized component data (not visible markup), so anyone reading the raw HTML source can see it.
 - Blocks and list changes aren't rate-limited yet.
 - Direct Storage uploads can place up to 3 files that weren't re-encoded (named `.webp`) in the user's own avatar folder. The app never uses them.
 - Not yet checked on the hosted Supabase project:

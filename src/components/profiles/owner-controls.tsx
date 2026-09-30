@@ -22,7 +22,7 @@ export function DeleteEntryButton({
     <ConfirmAction
       label="Delete"
       confirmLabel="Delete entry"
-      question={`Delete this entry for ${title}? Its score and review are removed everywhere.`}
+      question={`Delete this entry for ${title}? Its score, review, likes and comments are removed everywhere.`}
       action={() => deleteEntry({ id: entryId })}
     />
   );

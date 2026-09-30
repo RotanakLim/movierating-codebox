@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { EyeOff, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
+import { SpoilerText } from "@/components/reviews/spoiler-text";
 import { formatScore } from "@/lib/entries/score";
 import {
   BlockedNotice,
@@ -17,28 +18,10 @@ function publishedOn(value: string) {
   }).format(new Date(value));
 }
 
-/** Spoiler text stays out of the DOM (and screen-reader output) until revealed. */
 function ReviewBody({ review }: { review: Review }) {
-  const [revealed, setRevealed] = useState(false);
   if (!review.note) return null;
-  if (review.spoiler && !revealed)
-    return (
-      <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-line p-3 text-sm text-muted">
-        <EyeOff size={14} aria-hidden="true" />
-        This review contains spoilers.
-        <button
-          type="button"
-          onClick={() => setRevealed(true)}
-          className="font-semibold text-accent hover:underline"
-        >
-          Show review
-        </button>
-      </div>
-    );
   return (
-    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed">
-      {review.note}
-    </p>
+    <SpoilerText text={review.note} spoiler={review.spoiler} kind="review" />
   );
 }
 
@@ -191,6 +174,12 @@ export function ReviewList({
                 </p>
               )}
               <ReviewBody review={review} />
+              <Link
+                href={`/reviews/${review.id}`}
+                className="mt-3 inline-block text-xs font-semibold text-accent hover:underline"
+              >
+                Likes and discussion
+              </Link>
               {viewerId && review.author.id !== viewerId && (
                 <ReviewSafety
                   reviewId={review.id}

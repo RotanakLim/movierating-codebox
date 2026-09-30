@@ -10,6 +10,7 @@ type Choice = {
   action: ModerationAction;
   targetEntryId: string | null;
   targetUserId: string | null;
+  targetCommentId: string | null;
   explain: string;
 };
 
@@ -25,6 +26,7 @@ export function choicesFor(report: QueueReport): Choice[] {
       action: "dismiss",
       targetEntryId: null,
       targetUserId: null,
+      targetCommentId: null,
       explain: "Close this report without changing any content.",
     });
   if (
@@ -40,8 +42,26 @@ export function choicesFor(report: QueueReport): Choice[] {
       action: "hide",
       targetEntryId: report.entryId,
       targetUserId: null,
+      targetCommentId: null,
       explain:
         "Removes the review from movie pages, feeds, profiles and the community average. The author still sees it.",
+    });
+  if (
+    open &&
+    report.kind === "comment" &&
+    report.commentId &&
+    !report.commentHidden &&
+    !report.commentDeleted
+  )
+    choices.push({
+      key: "hide-comment",
+      label: "Hide comment",
+      action: "hide",
+      targetEntryId: null,
+      targetUserId: null,
+      targetCommentId: report.commentId,
+      explain:
+        "Removes the comment from the discussion for everyone. If it has replies, it shows as removed so the thread stays readable.",
     });
   if (open && report.targetUserId && !report.targetSuspended)
     choices.push({
@@ -50,6 +70,7 @@ export function choicesFor(report: QueueReport): Choice[] {
       action: "suspend",
       targetEntryId: null,
       targetUserId: report.targetUserId,
+      targetCommentId: null,
       explain:
         "Hides all of their reviews and ratings from everyone else and stops them posting, reporting or following until restored.",
     });
@@ -60,7 +81,18 @@ export function choicesFor(report: QueueReport): Choice[] {
       action: "restore",
       targetEntryId: report.entryId,
       targetUserId: null,
+      targetCommentId: null,
       explain: "Makes the hidden review public again.",
+    });
+  if (report.commentId && report.commentHidden)
+    choices.push({
+      key: "restore-comment",
+      label: "Restore comment",
+      action: "restore",
+      targetEntryId: null,
+      targetUserId: null,
+      targetCommentId: report.commentId,
+      explain: "Makes the hidden comment visible again.",
     });
   if (report.targetUserId && report.targetSuspended)
     choices.push({
@@ -69,6 +101,7 @@ export function choicesFor(report: QueueReport): Choice[] {
       action: "restore",
       targetEntryId: null,
       targetUserId: report.targetUserId,
+      targetCommentId: null,
       explain: "Lifts the suspension; their public content returns.",
     });
   return choices;
@@ -122,6 +155,7 @@ export function ModerationControls({ report }: { report: QueueReport }) {
                   reportId: choice.action === "restore" ? null : report.id,
                   targetEntryId: choice.targetEntryId,
                   targetUserId: choice.targetUserId,
+                  targetCommentId: choice.targetCommentId,
                 });
                 if (!result.ok)
                   return setMessage({ text: result.error, error: true });

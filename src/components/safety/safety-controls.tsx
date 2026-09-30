@@ -3,6 +3,7 @@ import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   block,
+  reportComment,
   reportReview,
   reportUser,
   unblock,
@@ -61,7 +62,8 @@ type Reason = (typeof REASONS)[number][0];
 
 export type ReportTarget =
   | { kind: "user"; userId: string; username: string }
-  | { kind: "review"; reviewId: string; username: string };
+  | { kind: "review"; reviewId: string; username: string }
+  | { kind: "comment"; commentId: string; username: string };
 
 /** Report a user or a review: a reason, optional details, and a private receipt. */
 export function ReportForm({
@@ -81,7 +83,7 @@ export function ReportForm({
   const title =
     target.kind === "user"
       ? `Report @${target.username}`
-      : `Report this review by @${target.username}`;
+      : `Report this ${target.kind} by @${target.username}`;
   return (
     <form
       className="space-y-3 rounded-xl border border-line p-4"
@@ -93,11 +95,17 @@ export function ReportForm({
             const result =
               target.kind === "user"
                 ? await reportUser({ userId: target.userId, reason, details })
-                : await reportReview({
-                    reviewId: target.reviewId,
-                    reason,
-                    details,
-                  });
+                : target.kind === "review"
+                  ? await reportReview({
+                      reviewId: target.reviewId,
+                      reason,
+                      details,
+                    })
+                  : await reportComment({
+                      commentId: target.commentId,
+                      reason,
+                      details,
+                    });
             if (!result.ok) return setError(result.error);
             onDone(result.receipt);
           } catch {

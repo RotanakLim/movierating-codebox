@@ -34,7 +34,10 @@ export async function loadReportQueue(
     details: row.details,
     createdAt: row.created_at,
     resolvedAt: row.resolved_at,
-    kind: row.target_kind === "review" ? "review" : "user",
+    kind:
+      row.target_kind === "review" || row.target_kind === "comment"
+        ? row.target_kind
+        : "user",
     reporter: row.reporter_username,
     targetUserId: row.target_user_id,
     targetUsername: row.target_username,
@@ -47,6 +50,12 @@ export async function loadReportQueue(
     score: row.entry_score,
     note: row.entry_note,
     spoiler: row.entry_spoiler ?? false,
+    commentId: row.target_comment_id,
+    commentReviewId: row.comment_review_id,
+    commentBody: row.comment_body,
+    commentSpoiler: row.comment_spoiler ?? false,
+    commentHidden: row.comment_hidden,
+    commentDeleted: row.comment_deleted,
   }));
 }
 
@@ -63,5 +72,6 @@ export async function loadAuditLog(supabase: Client): Promise<AuditEntry[]> {
     admin: row.admin_username,
     target: row.target_username,
     entryId: row.target_entry_id,
+    commentId: row.target_comment_id,
   }));
 }

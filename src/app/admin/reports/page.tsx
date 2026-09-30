@@ -48,7 +48,11 @@ function ReportCard({ report }: { report: QueueReport }) {
             {REPORT_REASON_LABELS[report.reason] ?? report.reason}
           </strong>
           {" · "}
-          {report.kind === "review" ? "Review by " : "Account "}
+          {report.kind === "review"
+            ? "Review by "
+            : report.kind === "comment"
+              ? "Comment by "
+              : "Account "}
           <Person name={report.targetUsername} />
           {report.targetSuspended && (
             <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-800 dark:bg-red-950 dark:text-red-200">
@@ -86,6 +90,28 @@ function ReportCard({ report }: { report: QueueReport }) {
           ) : (
             <p className="mt-2 text-muted">Rating only, no written review.</p>
           )}
+        </div>
+      )}
+      {report.kind === "comment" && (
+        <div className="mt-3 rounded-xl border border-line p-3 text-sm">
+          <p className="text-xs text-muted">
+            {report.commentReviewId ? (
+              <Link
+                href={`/reviews/${report.commentReviewId}`}
+                className="hover:text-accent"
+              >
+                On a review of {report.movieTitle ?? "a movie"}
+              </Link>
+            ) : (
+              "On a deleted review"
+            )}
+            {report.commentSpoiler && " · marked as spoiler"}
+            {report.commentHidden && " · hidden"}
+            {report.commentDeleted && " · deleted (snapshot from the report)"}
+          </p>
+          <p className="mt-2 whitespace-pre-line">
+            {report.commentBody ?? "No text available."}
+          </p>
         </div>
       )}
       {report.details && (
@@ -165,7 +191,11 @@ export default async function AdminReportsPage({
               <li key={entry.id} className="p-4">
                 <p>
                   <strong className="capitalize">{entry.action}</strong>
-                  {entry.entryId ? " review by " : " "}
+                  {entry.commentId
+                    ? " comment by "
+                    : entry.entryId
+                      ? " review by "
+                      : " "}
                   {entry.target ? `@${entry.target}` : "a deleted account"}
                   <span className="text-muted">
                     {" "}
