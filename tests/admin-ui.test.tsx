@@ -39,6 +39,12 @@ const report = (extra: Partial<QueueReport> = {}): QueueReport => ({
   score: 2,
   note: "Rude",
   spoiler: false,
+  commentId: null,
+  commentReviewId: null,
+  commentBody: null,
+  commentSpoiler: false,
+  commentHidden: false,
+  commentDeleted: false,
   ...extra,
 });
 const labels = (value: QueueReport) =>
@@ -65,6 +71,29 @@ describe("moderation choices", () => {
         }),
       ),
     ).toEqual(["Restore review", "Restore @author"]);
+  });
+  it("offers hide and restore for comment reports", () => {
+    const comment = report({
+      kind: "comment",
+      entryId: null,
+      commentId: "c1",
+      commentReviewId: "e9",
+      commentBody: "Rude",
+    });
+    expect(labels(comment)).toEqual([
+      "Dismiss",
+      "Hide comment",
+      "Suspend @author",
+    ]);
+    expect(
+      choicesFor(comment).find((choice) => choice.key === "hide-comment"),
+    ).toMatchObject({ action: "hide", targetCommentId: "c1" });
+    expect(
+      labels({ ...comment, status: "resolved", commentHidden: true }),
+    ).toEqual(["Restore comment"]);
+    expect(labels({ ...comment, commentDeleted: true })).not.toContain(
+      "Hide comment",
+    );
   });
   it("never offers to hide a user report or a deleted review", () => {
     expect(labels(report({ kind: "user", entryId: null }))).toEqual([
@@ -96,6 +125,7 @@ describe("<ModerationControls>", () => {
       reportId: "r1",
       targetEntryId: "e1",
       targetUserId: null,
+      targetCommentId: null,
     });
     expect(screen.getByRole("status").textContent).toContain("recorded");
     expect(mocks.refresh).toHaveBeenCalled();
@@ -122,6 +152,7 @@ describe("<ModerationControls>", () => {
       reportId: null,
       targetEntryId: null,
       targetUserId: "u1",
+      targetCommentId: null,
     });
   });
   it("shows the database's refusal", async () => {

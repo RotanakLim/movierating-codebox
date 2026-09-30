@@ -33,6 +33,7 @@ import type { FeedItem } from "@/lib/feed/types";
 
 const item = (n: number, extra: Partial<FeedItem> = {}): FeedItem => ({
   id: `item-${n}`,
+  entryId: `entry-${n}`,
   kind: "rated",
   createdAt: "2026-09-30T10:00:00Z",
   user: { username: `fan${n}`, avatar: null },
@@ -120,10 +121,8 @@ describe("feed cards", () => {
     render(<FeedCard item={item(1, { kind: "reviewed", score: null })} />);
     expect(document.body.textContent).toContain("@fan1 reviewed Movie 1");
     expect(
-      screen
-        .getByRole("link", { name: "Read on the movie page" })
-        .getAttribute("href"),
-    ).toBe("/movies/603");
+      screen.getByRole("link", { name: "Read review" }).getAttribute("href"),
+    ).toBe("/reviews/entry-1");
   });
   it("show a rating's score", () => {
     render(<FeedCard item={item(2)} />);

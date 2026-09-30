@@ -143,7 +143,7 @@ const reportFields = {
 /** Map a refused report insert to a message; the database enforces each rule. */
 function reportError(
   error: { code?: string; details?: string | null },
-  subject: "account" | "review",
+  subject: "account" | "review" | "comment",
 ) {
   const retryAfter = rateLimitRetry(error);
   if (retryAfter !== null)
@@ -151,9 +151,9 @@ function reportError(
   if (error.code === "23505")
     return `You already have an open report about this ${subject}.`;
   if (error.code === "23514")
-    return subject === "review"
-      ? "This review can't be reported. It may be yours or no longer public."
-      : "You can't report this account.";
+    return subject === "account"
+      ? "You can't report this account."
+      : `This ${subject} can't be reported. It may be yours or no longer visible.`;
   return failed.error;
 }
 
@@ -163,9 +163,12 @@ function reportError(
  * receipt ID is generated here. For reviews the database records the author.
  */
 async function fileReport(
-  target: { target_user_id: string } | { target_entry_id: string },
+  target:
+    | { target_user_id: string }
+    | { target_entry_id: string }
+    | { target_comment_id: string },
   fields: { reason: (typeof REPORT_REASONS)[number]; details: string },
-  subject: "account" | "review",
+  subject: "account" | "review" | "comment",
 ): Promise<ActionResult<{ receipt: string }>> {
   const session = await requireContributor();
   if (!session.ok) return session;
@@ -196,6 +199,22 @@ export async function reportUser(
     { target_user_id: parsed.data.userId },
     parsed.data,
     "account",
+  );
+}
+
+export async function reportComment(
+  input: unknown,
+): Promise<ActionResult<{ receipt: string }>> {
+  const parsed = z
+    .object({ commentId: z.uuid(), ...reportFields })
+    .strict()
+    .safeParse(input);
+  if (!parsed.success)
+    return { ok: false, error: parsed.error.issues[0].message };
+  return fileReport(
+    { target_comment_id: parsed.data.commentId },
+    parsed.data,
+    "comment",
   );
 }
 

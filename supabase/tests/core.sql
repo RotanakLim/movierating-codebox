@@ -32,7 +32,7 @@ grant execute on function codebox_test.ok(boolean, text), codebox_test.denied(te
 
 select codebox_test.ok((select count(*) = 1 from public.users where id = '00000000-0000-0000-0000-000000000099'), 'migration backfills existing auth users');
 select codebox_test.ok((select count(*) = 1 from public.lists where user_id = '00000000-0000-0000-0000-000000000099' and kind = 'watchlist'), 'migration backfills default watchlist');
-select codebox_test.ok((select count(*) = 11 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity), 'all eleven public tables have RLS');
+select codebox_test.ok((select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity) = 13, 'all thirteen public tables have RLS');
 select codebox_test.ok((select count(*) = 0 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity), 'no public table lacks RLS');
 select codebox_test.ok(not has_function_privilege('anon', 'public.request_follow(uuid)', 'EXECUTE'), 'guest has no follow RPC grant');
 select codebox_test.ok(not has_function_privilege('authenticated', 'codebox_private.handle_auth_signup()', 'EXECUTE'), 'clients cannot invoke privileged trigger function');
@@ -974,7 +974,7 @@ update public.users set username = 'mod_viewer' where id = '00000000-0000-0000-0
 select codebox_test.ok((select count(*) = 0 from pg_policies where schemaname = 'codebox_private' and tablename = 'admin_roles'), 'admin roles have no client policies');
 select codebox_test.ok(not has_table_privilege('authenticated', 'codebox_private.admin_roles', 'INSERT'), 'users cannot grant themselves admin');
 select codebox_test.ok(not has_table_privilege('service_role', 'codebox_private.moderation_actions', 'SELECT'), 'the audit log is readable only through admin functions');
-select codebox_test.ok(not has_function_privilege('anon', 'public.admin_moderate(text, text, uuid, uuid, uuid)', 'EXECUTE'), 'guests cannot moderate');
+select codebox_test.ok(not has_function_privilege('anon', 'public.admin_moderate(text, text, uuid, uuid, uuid, uuid)', 'EXECUTE'), 'guests cannot moderate');
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000041', false);
@@ -1194,4 +1194,181 @@ select codebox_test.denied($q$select public.request_follow('00000000-0000-0000-0
 select codebox_test.ok((select count(*) = 0 from public.follows where follower_id = auth.uid() and following_id = '00000000-0000-0000-0000-000000000057'), 'a refused follow request is not saved');
 reset role;
 update codebox_private.action_limit_settings set max_actions = 30 where action = 'follow';
+select set_config('request.jwt.claim.sub', '', false);
+
+-- Review pages: likes, one-level comment threads, blocks, reports, moderation.
+reset role;
+select set_config('request.jwt.claim.sub', '', false);
+select set_config('request.jwt.claims', '', false);
+insert into auth.users(id, email_confirmed_at) values
+ ('00000000-0000-0000-0000-000000000060', now()), ('00000000-0000-0000-0000-000000000061', now()),
+ ('00000000-0000-0000-0000-000000000062', now()), ('00000000-0000-0000-0000-000000000063', now());
+update public.users set username = 'rv_author' where id = '00000000-0000-0000-0000-000000000060';
+update public.users set username = 'rv_fan' where id = '00000000-0000-0000-0000-000000000061';
+update public.users set username = 'rv_other' where id = '00000000-0000-0000-0000-000000000062';
+update public.users set username = 'rv_blocker' where id = '00000000-0000-0000-0000-000000000063';
+select codebox_test.ok(not has_table_privilege('authenticated', 'public.review_comments', 'INSERT') and not has_table_privilege('authenticated', 'public.review_likes', 'SELECT'), 'clients reach likes and comments only through functions');
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000060', false);
+insert into public.entries(id, movie_id, score, note) values ('00000000-0000-0000-0000-0000000000b1', 603, 8.5, 'Great fun');
+insert into public.entries(id, movie_id, watched, watched_date) values ('00000000-0000-0000-0000-0000000000b2', 680, true, current_date);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+insert into public.entries(id, movie_id, score) values ('00000000-0000-0000-0000-0000000000b3', 680, 6.0);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000063', false);
+insert into public.blocks(blocked_id) values ('00000000-0000-0000-0000-000000000060');
+
+-- Likes.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+select codebox_test.ok((select is_liked and like_count = 1 from public.set_review_like('00000000-0000-0000-0000-0000000000b1', true)), 'a user can like a review');
+select codebox_test.ok((select is_liked and like_count = 1 from public.set_review_like('00000000-0000-0000-0000-0000000000b1', true)), 'liking twice keeps one like');
+select codebox_test.ok((select like_count = 1 and liked from public.review_details('00000000-0000-0000-0000-0000000000b1')), 'the review page shows the database count and my like');
+select codebox_test.denied($q$select public.set_review_like('00000000-0000-0000-0000-0000000000b2', true)$q$, '22023', 'watched-only entries are not reviews and cannot be liked');
+select codebox_test.denied($q$insert into public.review_likes(entry_id) values ('00000000-0000-0000-0000-0000000000b1')$q$, '42501', 'likes cannot be written directly');
+select codebox_test.ok((select not is_liked and like_count = 0 from public.set_review_like('00000000-0000-0000-0000-0000000000b1', false)), 'likes are reversible');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000060', false);
+select codebox_test.denied($q$select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true)$q$, '22023', 'authors cannot like their own review');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000063', false);
+select codebox_test.denied($q$select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true)$q$, '22023', 'a blocker cannot like the blocked author''s review');
+select codebox_test.ok((select count(*) = 0 from public.review_details('00000000-0000-0000-0000-0000000000b1')), 'blocked pairs do not see each other''s review pages');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.denied($q$select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true)$q$, '42501', 'guests cannot like');
+select codebox_test.ok((select count(*) = 1 from public.review_details('00000000-0000-0000-0000-0000000000b1')), 'guests can read public review pages');
+select codebox_test.ok((select count(*) = 0 from public.review_details('00000000-0000-0000-0000-0000000000b2')), 'watched-only entries have no review page');
+reset role;
+update codebox_private.action_limit_settings set max_actions = 2 where action = 'like';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true);
+select public.set_review_like('00000000-0000-0000-0000-0000000000b1', false);
+select public.set_review_like('00000000-0000-0000-0000-0000000000b1', false);
+select codebox_test.ok(true, 'no-op like changes are not counted');
+select codebox_test.denied($q$select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true)$q$, 'PT429', 'like changes are limited per user');
+reset role;
+update codebox_private.action_limit_settings set max_actions = 100 where action = 'like';
+select codebox_test.ok((select window_seconds = 600 from codebox_private.action_limit_settings where action = 'like'), 'the like window is 10 minutes');
+
+-- Comments and one reply level.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', '   ')$q$, '22023', 'comments cannot be empty');
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', repeat('x', 2001))$q$, '22023', 'comments are at most 2,000 characters');
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b2', 'Hi')$q$, '22023', 'watched-only entries have no discussion');
+select codebox_test.denied($q$insert into public.review_comments(entry_id, body) values ('00000000-0000-0000-0000-0000000000b1', 'direct')$q$, '42501', 'comments cannot be written directly');
+create temp table rv_ids(name text primary key, id uuid, at timestamptz);
+grant select, insert on rv_ids to authenticated, anon;
+insert into rv_ids(name, id) select 'top', public.add_review_comment('00000000-0000-0000-0000-0000000000b1', '  First!  ');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+insert into rv_ids(name, id) select 'reply', public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'The ending twist', true, (select id from rv_ids where name = 'top'));
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+insert into rv_ids(name, id) select 'reply2', public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Agreed', false, (select id from rv_ids where name = 'reply'));
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b3', 'Wrong review', false, (select id from rv_ids where name = 'top'))$q$, '23514', 'replies must belong to the same review');
+reset role;
+update rv_ids r set at = c.created_at from public.review_comments c where c.id = r.id;
+select codebox_test.ok((select body = 'First!' and parent_id is null from public.review_comments where id = (select id from rv_ids where name = 'top')), 'comment text is trimmed');
+select codebox_test.ok((select parent_id = (select id from rv_ids where name = 'top') and reply_to_user_id = '00000000-0000-0000-0000-000000000062' from public.review_comments where id = (select id from rv_ids where name = 'reply2')), 'a reply to a reply joins the top-level thread and records whom it answers');
+select codebox_test.denied($q$insert into public.review_comments(entry_id, user_id, parent_id, body) values ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-000000000061', (select id from rv_ids where name = 'reply'), 'nested')$q$, '23514', 'the database refuses a second reply level from any writer');
+select codebox_test.denied($q$update public.review_comments set parent_id = null where id = (select id from rv_ids where name = 'reply')$q$, '23514', 'comments cannot be reparented');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.ok((select count(*) = 3 from public.review_threads('00000000-0000-0000-0000-0000000000b1')), 'guests read the thread and its replies');
+select codebox_test.ok((select reply_count = 2 and author_username = 'rv_fan' from public.review_threads('00000000-0000-0000-0000-0000000000b1') where parent_id is null), 'threads carry their reply count');
+select codebox_test.ok((select reply_to_username = 'rv_other' from public.review_threads('00000000-0000-0000-0000-0000000000b1') where id = (select id from rv_ids where name = 'reply2')), 'replies show whom they answer');
+select codebox_test.ok((select spoiler and body = 'The ending twist' from public.review_threads('00000000-0000-0000-0000-0000000000b1') where id = (select id from rv_ids where name = 'reply')), 'comments keep their own spoiler flag');
+select codebox_test.ok((select count(*) = 1 from public.review_threads('00000000-0000-0000-0000-0000000000b1', null, null, 20, 1) where parent_id is not null), 'threads show a limited number of replies');
+select codebox_test.ok((select count(*) = 2 from public.review_replies((select id from rv_ids where name = 'top'))), 'more replies page separately');
+select codebox_test.ok((select count(*) = 1 from public.review_replies((select id from rv_ids where name = 'top'), (select created_at from public.review_replies((select id from rv_ids where name = 'top')) limit 1), (select id from public.review_replies((select id from rv_ids where name = 'top')) limit 1))), 'reply pages continue after a cursor');
+select codebox_test.ok((select comment_count = 3 from public.review_details('00000000-0000-0000-0000-0000000000b1')), 'the review page counts visible comments');
+
+-- Edits and deletes by owners only.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+select codebox_test.denied($q$select public.edit_review_comment((select id from rv_ids where name = 'top'), 'Hijacked', false)$q$, '42501', 'only the owner can edit a comment');
+select codebox_test.denied($q$select public.delete_review_comment((select id from rv_ids where name = 'top'))$q$, '42501', 'only the owner can delete a comment');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+select public.edit_review_comment((select id from rv_ids where name = 'top'), 'First, edited', true);
+select codebox_test.ok((select edited_at is not null and spoiler and body = 'First, edited' from public.review_threads('00000000-0000-0000-0000-0000000000b1') where parent_id is null), 'edits are marked edited');
+select public.delete_review_comment((select id from rv_ids where name = 'top'));
+select codebox_test.ok((select state = 'deleted' and body is null and author_username is null and reply_count = 2 from public.review_threads('00000000-0000-0000-0000-0000000000b1') where parent_id is null), 'a deleted comment with replies shows as [deleted] and keeps the thread');
+select codebox_test.denied($q$select public.edit_review_comment((select id from rv_ids where name = 'top'), 'Back', false)$q$, '42501', 'deleted comments cannot be edited');
+select public.delete_review_comment((select id from rv_ids where name = 'reply2'));
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+select public.delete_review_comment((select id from rv_ids where name = 'reply'));
+select codebox_test.ok((select count(*) = 0 from public.review_threads('00000000-0000-0000-0000-0000000000b1')), 'a [deleted] comment goes once its last reply is deleted');
+
+-- Blocks: hidden for the pair, and no replies across a block.
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+delete from rv_ids;
+insert into rv_ids(name, id) select 'fan', public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Fan thread');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+insert into rv_ids(name, id) select 'other', public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Other thread');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+insert into public.blocks(blocked_id) values ('00000000-0000-0000-0000-000000000062');
+select codebox_test.ok((select count(*) = 0 from public.review_threads('00000000-0000-0000-0000-0000000000b1') where state = 'visible' and author_username = 'rv_other'), 'blocked users'' comments are hidden for the pair');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Sneaky', false, (select id from rv_ids where name = 'fan'))$q$, '42501', 'blocked users cannot reply to each other, even directly');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000063', false);
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Hi')$q$, '22023', 'blocked pairs cannot comment on each other''s reviews');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.ok((select count(*) = 2 from public.review_threads('00000000-0000-0000-0000-0000000000b1')), 'blocks do not erase comments for everyone else');
+
+-- Reports on comments, and moderator hide/restore.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000060', false);
+insert into public.reports(id, target_comment_id, reason, details) values ('00000000-0000-0000-0000-0000000000a9', (select id from rv_ids where name = 'other'), 'harassment', 'Rude');
+select codebox_test.denied($q$insert into public.reports(target_comment_id, reason) values ((select id from rv_ids where name = 'other'), 'spam')$q$, '23505', 'one open report per reporter and comment');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+select codebox_test.denied($q$insert into public.reports(target_comment_id, reason) values ((select id from rv_ids where name = 'other'), 'spam')$q$, '23514', 'users cannot report their own comment');
+select codebox_test.denied($q$select * from public.reports$q$, '42501', 'reported commenters cannot read reports');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000040', false);
+select codebox_test.ok((select target_kind = 'comment' and target_username = 'rv_other' and comment_body = 'Other thread' and comment_review_id = '00000000-0000-0000-0000-0000000000b1' and movie_title = 'The Matrix' from public.admin_reports() where id = '00000000-0000-0000-0000-0000000000a9'), 'admins see the reported comment in context');
+select public.admin_moderate('hide', 'Harassing comment', '00000000-0000-0000-0000-0000000000a9');
+select codebox_test.ok((select comment_hidden and status = 'resolved' from public.admin_reports('resolved') where id = '00000000-0000-0000-0000-0000000000a9'), 'hiding a comment resolves its report');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.ok((select count(*) = 1 from public.review_threads('00000000-0000-0000-0000-0000000000b1')), 'hidden comments leave the discussion');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000040', false);
+select public.admin_moderate('restore', 'Reviewed', null, null, null, (select id from rv_ids where name = 'other'));
+select codebox_test.ok((select count(*) = 1 from public.admin_moderation_log() where action = 'restore' and reason = 'Reviewed' and target_comment_id = (select id from rv_ids where name = 'other')), 'comment restores are audited');
+set role anon;
+select set_config('request.jwt.claim.sub', '', false);
+select codebox_test.ok((select count(*) = 2 from public.review_threads('00000000-0000-0000-0000-0000000000b1')), 'restored comments return');
+
+-- Comment limit.
+reset role;
+update codebox_private.action_limit_settings set max_actions = 1 where action = 'comment';
+delete from codebox_private.action_limits where action = 'comment';
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000060', false);
+select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Author reply');
+select codebox_test.denied($q$select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Again')$q$, 'PT429', 'comments are limited per user');
+reset role;
+update codebox_private.action_limit_settings set max_actions = 30 where action = 'comment';
+
+-- Account deletion leaves non-attributed tombstones only where replies need them.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000060', false);
+select public.add_review_comment('00000000-0000-0000-0000-0000000000b1', 'Reply to other', false, (select id from rv_ids where name = 'other'));
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000062', false);
+select set_config('request.jwt.claims', jsonb_build_object('sub', auth.uid(), 'amr', jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from now())::bigint)))::text, false);
+select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true);
+select public.request_account_deletion('rv_other');
+select set_config('request.jwt.claims', '', false);
+reset role;
+select codebox_test.ok((select user_id is null and body is null and deleted_at is not null from public.review_comments where id = (select id from rv_ids where name = 'other')), 'a deleted account''s comment with replies becomes a non-attributed tombstone');
+select codebox_test.ok((select count(*) = 0 from public.review_comments where user_id = '00000000-0000-0000-0000-000000000062'), 'nothing stays attributed to a deleted account');
+select codebox_test.ok((select count(*) = 0 from public.review_likes where user_id = '00000000-0000-0000-0000-000000000062'), 'a deleted account''s likes are removed');
+
+-- Deleting a review removes its likes and discussion.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', false);
+select public.set_review_like('00000000-0000-0000-0000-0000000000b1', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000060', false);
+delete from public.entries where id = '00000000-0000-0000-0000-0000000000b1';
+reset role;
+select codebox_test.ok((select count(*) = 0 from public.review_likes where entry_id = '00000000-0000-0000-0000-0000000000b1') and (select count(*) = 0 from public.review_comments where entry_id = '00000000-0000-0000-0000-0000000000b1'), 'deleting a review removes its likes and discussion');
+select codebox_test.ok((select count(*) = 1 and bool_and(target_comment_id is null) from public.reports where id = '00000000-0000-0000-0000-0000000000a9'), 'reports outlive the deleted discussion');
 select set_config('request.jwt.claim.sub', '', false);

@@ -393,6 +393,7 @@ export type Database = {
           reporter_id: string | null;
           resolved_at: string | null;
           status: Database["public"]["Enums"]["report_status"];
+          target_comment_id: string | null;
           target_entry_id: string | null;
           target_kind: string;
           target_user_id: string | null;
@@ -406,6 +407,7 @@ export type Database = {
           reporter_id?: string | null;
           resolved_at?: string | null;
           status?: Database["public"]["Enums"]["report_status"];
+          target_comment_id?: string | null;
           target_entry_id?: string | null;
           target_kind?: string;
           target_user_id?: string | null;
@@ -419,6 +421,7 @@ export type Database = {
           reporter_id?: string | null;
           resolved_at?: string | null;
           status?: Database["public"]["Enums"]["report_status"];
+          target_comment_id?: string | null;
           target_entry_id?: string | null;
           target_kind?: string;
           target_user_id?: string | null;
@@ -436,6 +439,13 @@ export type Database = {
             columns: ["reporter_id"];
             isOneToOne: false;
             referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "reports_target_comment_id_fkey";
+            columns: ["target_comment_id"];
+            isOneToOne: false;
+            referencedRelation: "review_comments";
             referencedColumns: ["id"];
           },
           {
@@ -476,6 +486,170 @@ export type Database = {
           {
             foreignKeyName: "reports_target_user_id_fkey";
             columns: ["target_user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      review_comments: {
+        Row: {
+          body: string | null;
+          created_at: string;
+          deleted_at: string | null;
+          edited_at: string | null;
+          entry_id: string;
+          id: string;
+          parent_id: string | null;
+          reply_to_user_id: string | null;
+          spoiler: boolean;
+          user_id: string | null;
+        };
+        Insert: {
+          body?: string | null;
+          created_at?: string;
+          deleted_at?: string | null;
+          edited_at?: string | null;
+          entry_id: string;
+          id?: string;
+          parent_id?: string | null;
+          reply_to_user_id?: string | null;
+          spoiler?: boolean;
+          user_id?: string | null;
+        };
+        Update: {
+          body?: string | null;
+          created_at?: string;
+          deleted_at?: string | null;
+          edited_at?: string | null;
+          entry_id?: string;
+          id?: string;
+          parent_id?: string | null;
+          reply_to_user_id?: string | null;
+          spoiler?: boolean;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "review_comments_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "current_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_current_ratings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_reviews";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_parent_id_fkey";
+            columns: ["parent_id"];
+            isOneToOne: false;
+            referencedRelation: "review_comments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_reply_to_user_id_fkey";
+            columns: ["reply_to_user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_reply_to_user_id_fkey";
+            columns: ["reply_to_user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_comments_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      review_likes: {
+        Row: {
+          created_at: string;
+          entry_id: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          entry_id: string;
+          user_id?: string;
+        };
+        Update: {
+          created_at?: string;
+          entry_id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "review_likes_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "current_entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_likes_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_likes_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_current_ratings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_likes_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "public_reviews";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_likes_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "review_likes_user_id_fkey";
+            columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
             referencedColumns: ["id"];
@@ -906,11 +1080,21 @@ export type Database = {
       };
     };
     Functions: {
+      add_review_comment: {
+        Args: {
+          comment_text: string;
+          is_spoiler?: boolean;
+          reply_to?: string;
+          target: string;
+        };
+        Returns: string;
+      };
       admin_moderate: {
         Args: {
           action: string;
           reason: string;
           report?: string;
+          target_comment?: string;
           target_entry?: string;
           target_user?: string;
         };
@@ -925,6 +1109,7 @@ export type Database = {
           id: string;
           reason: string;
           report_id: string;
+          target_comment_id: string;
           target_entry_id: string;
           target_user_id: string;
           target_username: string;
@@ -936,6 +1121,11 @@ export type Database = {
           max_rows?: number;
         };
         Returns: {
+          comment_body: string;
+          comment_deleted: boolean;
+          comment_hidden: boolean;
+          comment_review_id: string;
+          comment_spoiler: boolean;
           created_at: string;
           details: string;
           entry_deleted: boolean;
@@ -950,6 +1140,7 @@ export type Database = {
           reporter_username: string;
           resolved_at: string;
           status: Database["public"]["Enums"]["report_status"];
+          target_comment_id: string;
           target_entry_id: string;
           target_kind: string;
           target_suspended: boolean;
@@ -960,6 +1151,11 @@ export type Database = {
       consume_movie_request_limit: {
         Args: { key_hash: string; request_scope: string };
         Returns: Json;
+      };
+      delete_review_comment: { Args: { target: string }; Returns: undefined };
+      edit_review_comment: {
+        Args: { comment_text: string; is_spoiler: boolean; target: string };
+        Returns: undefined;
       };
       find_people: {
         Args: { max_rows?: number; search?: string };
@@ -1033,9 +1229,83 @@ export type Database = {
         Args: { approve: boolean; requester_id: string };
         Returns: undefined;
       };
+      review_details: {
+        Args: { target: string };
+        Returns: {
+          avatar: string;
+          comment_count: number;
+          created_at: string;
+          id: string;
+          is_hidden: boolean;
+          like_count: number;
+          liked: boolean;
+          movie_id: number;
+          note: string;
+          poster: string;
+          score: number;
+          spoiler: boolean;
+          title: string;
+          updated_at: string;
+          user_id: string;
+          username: string;
+          year: number;
+        }[];
+      };
+      review_replies: {
+        Args: {
+          after_at?: string;
+          after_id?: string;
+          page_size?: number;
+          thread: string;
+        };
+        Returns: {
+          author_avatar: string;
+          author_username: string;
+          body: string;
+          created_at: string;
+          edited_at: string;
+          id: string;
+          is_mine: boolean;
+          parent_id: string;
+          reply_count: number;
+          reply_to_username: string;
+          spoiler: boolean;
+          state: string;
+        }[];
+      };
+      review_threads: {
+        Args: {
+          after_at?: string;
+          after_id?: string;
+          page_size?: number;
+          reply_limit?: number;
+          target: string;
+        };
+        Returns: {
+          author_avatar: string;
+          author_username: string;
+          body: string;
+          created_at: string;
+          edited_at: string;
+          id: string;
+          is_mine: boolean;
+          parent_id: string;
+          reply_count: number;
+          reply_to_username: string;
+          spoiler: boolean;
+          state: string;
+        }[];
+      };
       set_favorite_movies: {
         Args: { movie_ids: number[] };
         Returns: undefined;
+      };
+      set_review_like: {
+        Args: { should_like: boolean; target: string };
+        Returns: {
+          is_liked: boolean;
+          like_count: number;
+        }[];
       };
       username_status: { Args: { candidate: string }; Returns: string };
     };

@@ -34,6 +34,7 @@ import { FEED_PAGE_SIZE } from "@/lib/feed/types";
 
 const row = (n: number, extra: Record<string, unknown> = {}) => ({
   id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+  entry_id: `10000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
   kind: "rated",
   created_at: `2026-09-${String(30 - (n % 28)).padStart(2, "0")}T10:00:00+00:00`,
   username: "film_fan",
@@ -100,6 +101,7 @@ describe("loadFeed", () => {
     const [item] = (await loadFeed("community", null)).items;
     expect(item).toEqual({
       id: row(1).id,
+      entryId: row(1).entry_id,
       kind: "reviewed",
       createdAt: row(1).created_at,
       user: { username: "film_fan", avatar: null },

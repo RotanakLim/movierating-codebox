@@ -8,6 +8,8 @@ export const FEED_PAGE_SIZE = 20;
  */
 export type FeedItem = {
   id: string;
+  /** The entry behind the card; ratings and reviews have a review page. */
+  entryId: string;
   kind: "rated" | "reviewed" | "watched";
   createdAt: string;
   user: { username: string; avatar: string | null };

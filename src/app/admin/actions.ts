@@ -22,6 +22,7 @@ const schema = z
     reportId: z.uuid().nullable(),
     targetEntryId: z.uuid().nullable(),
     targetUserId: z.uuid().nullable(),
+    targetCommentId: z.uuid().nullable().default(null),
   })
   .strict();
 
@@ -37,13 +38,21 @@ export async function moderate(input: unknown): Promise<ActionResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: "Sign in to continue." };
   const supabase = await createClient();
-  const { action, reason, reportId, targetEntryId, targetUserId } = parsed.data;
+  const {
+    action,
+    reason,
+    reportId,
+    targetEntryId,
+    targetUserId,
+    targetCommentId,
+  } = parsed.data;
   const { error } = await supabase.rpc("admin_moderate", {
     action,
     reason,
     ...(reportId ? { report: reportId } : {}),
     ...(targetEntryId ? { target_entry: targetEntryId } : {}),
     ...(targetUserId ? { target_user: targetUserId } : {}),
+    ...(targetCommentId ? { target_comment: targetCommentId } : {}),
   });
   if (error?.code === "42501") return { ok: false, error: "Admins only." };
   // 22023 messages are written for moderators in the migration.
