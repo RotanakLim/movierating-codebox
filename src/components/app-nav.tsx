@@ -105,7 +105,7 @@ export function AppNav() {
         <div className="flex items-center justify-between gap-3 px-5 py-4 sm:px-10">
           {brand}
           <div className="flex items-center gap-2">
-            <ThemeToggle />
+            <ThemeToggle signedIn={Boolean(profile?.username)} />
             <button
               type="button"
               className="rounded-lg p-2 text-muted hover:text-ink"
@@ -141,7 +141,7 @@ export function AppNav() {
             {links}
           </nav>
           <div className="px-2">
-            <ThemeToggle />
+            <ThemeToggle signedIn={Boolean(profile?.username)} />
           </div>
         </div>
       </aside>

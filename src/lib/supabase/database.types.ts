@@ -389,27 +389,27 @@ export type Database = {
           details: string | null;
           id: string;
           reason: Database["public"]["Enums"]["report_reason"];
-          reporter_id: string;
+          reporter_id: string | null;
           status: Database["public"]["Enums"]["report_status"];
-          target_user_id: string;
+          target_user_id: string | null;
         };
         Insert: {
           created_at?: string;
           details?: string | null;
           id?: string;
           reason: Database["public"]["Enums"]["report_reason"];
-          reporter_id?: string;
+          reporter_id?: string | null;
           status?: Database["public"]["Enums"]["report_status"];
-          target_user_id: string;
+          target_user_id?: string | null;
         };
         Update: {
           created_at?: string;
           details?: string | null;
           id?: string;
           reason?: Database["public"]["Enums"]["report_reason"];
-          reporter_id?: string;
+          reporter_id?: string | null;
           status?: Database["public"]["Enums"]["report_status"];
-          target_user_id?: string;
+          target_user_id?: string | null;
         };
         Relationships: [
           {
@@ -485,16 +485,19 @@ export type Database = {
       user_preferences: {
         Row: {
           favorite_genre_ids: number[];
+          theme: string | null;
           updated_at: string;
           user_id: string;
         };
         Insert: {
           favorite_genre_ids?: number[];
+          theme?: string | null;
           updated_at?: string;
           user_id?: string;
         };
         Update: {
           favorite_genre_ids?: number[];
+          theme?: string | null;
           updated_at?: string;
           user_id?: string;
         };
@@ -815,6 +818,13 @@ export type Database = {
           username: string;
         }[];
       };
+      pending_account_deletions: {
+        Args: { max_rows?: number };
+        Returns: {
+          attempts: number;
+          user_id: string;
+        }[];
+      };
       profile_card: {
         Args: { target_username: string };
         Returns: {
@@ -827,8 +837,16 @@ export type Database = {
           visibility: Database["public"]["Enums"]["profile_visibility"];
         }[];
       };
+      record_account_deletion_attempt: {
+        Args: { failure?: string; target: string };
+        Returns: undefined;
+      };
       remove_follow: {
         Args: { direction?: string; other_id: string };
+        Returns: undefined;
+      };
+      request_account_deletion: {
+        Args: Record<PropertyKey, never>;
         Returns: undefined;
       };
       request_follow: {

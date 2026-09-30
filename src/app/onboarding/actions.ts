@@ -11,6 +11,7 @@ import { limitMovieRequest } from "@/lib/movies/limits";
 import { MovieError } from "@/lib/movies/errors";
 import { MOVIE_GENRES } from "@/lib/movies/types";
 import { readUsername } from "@/lib/onboarding/profile";
+import { savePreferences } from "@/lib/settings/preferences";
 import {
   FAVORITE_MOVIE_LIMIT,
   onboardingStepPath,
@@ -22,7 +23,7 @@ import {
 } from "@/lib/onboarding/username";
 import { usernameSchema } from "@/lib/onboarding/username-schema";
 
-export type OnboardingState = { error?: string };
+export type OnboardingState = { error?: string; saved?: boolean };
 
 const genreIds = new Set<number>(MOVIE_GENRES.map(([id]) => id));
 const genresSchema = z
@@ -43,6 +44,16 @@ const unavailable = {
 function field(data: FormData, name: string) {
   const value = data.get(name);
   return typeof value === "string" ? value : "";
+}
+
+/** The genre and favorite forms are reused in Settings, which stays on the page. */
+function fromSettings(data: FormData) {
+  return field(data, "mode") === "settings";
+}
+function savedInSettings(): OnboardingState {
+  revalidatePath("/settings");
+  revalidatePath("/u/[username]", "layout");
+  return { saved: true };
 }
 
 /** Debounced availability check for the username field. */
@@ -109,28 +120,13 @@ export async function saveGenres(
   if (!parsed.success) return { error: "Choose genres from the list." };
   const session = await requireOnboardedUser();
   if (!session) return signedOut;
-  // The owner comes from the verified session, never from the form. Update first;
-  // insert only if no row exists (clients cannot update user_id, so no upsert).
-  const { supabase, user } = session;
-  const { data: updated, error } = await supabase
-    .from("user_preferences")
-    .update({ favorite_genre_ids: parsed.data })
-    .eq("user_id", user.id)
-    .select("user_id");
-  if (error) return unavailable;
-  if (!updated.length) {
-    const { error: insertError } = await supabase
-      .from("user_preferences")
-      .insert({ user_id: user.id, favorite_genre_ids: parsed.data });
-    // 23505: a concurrent save created the row; retry the update once.
-    if (insertError?.code === "23505") {
-      const { error: retryError } = await supabase
-        .from("user_preferences")
-        .update({ favorite_genre_ids: parsed.data })
-        .eq("user_id", user.id);
-      if (retryError) return unavailable;
-    } else if (insertError) return unavailable;
-  }
+  if (
+    !(await savePreferences(session.supabase, session.user.id, {
+      favorite_genre_ids: parsed.data,
+    }))
+  )
+    return unavailable;
+  if (fromSettings(data)) return savedInSettings();
   redirect(onboardingStepPath("movies", next));
 }
 
@@ -164,5 +160,6 @@ export async function saveFavoriteMovies(
     movie_ids: parsed.data,
   });
   if (error) return unavailable;
+  if (fromSettings(data)) return savedInSettings();
   redirect(onboardingStepPath("finish", next));
 }

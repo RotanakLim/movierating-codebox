@@ -249,4 +249,10 @@ The subsequent database request specifies the concrete names `users`, `movies`, 
 - Onboarding preferences live in owner-only `user_preferences` (favorite genre IDs) and `user_favorite_movies` (at most five, referencing cached `movies`), in place of the suggested `profile_details` preferences field. Favorites never create entries, ratings, or activity. Username rules are defined once in the database (`valid_username()`), and availability is checked through a signed-in-only RPC.
 - `activity` replaces the suggested feed_events name. Triggers author one event per ranking; edits preserve publication time, and deletion cascades. Feed summaries contain no spoiler text.
 
-The migrations implement this database subset, not the complete product. The moderation, comment, notification, aggregate/taste, avatar-storage, rate-limit, and account-deletion orchestration features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.
+- Settings (September 30):
+  - Avatars live in a public `avatars` Storage bucket, with owner-only writes under `<user id>/`, re-encoded to WebP on the server.
+  - The account theme is `user_preferences.theme`, where NULL means never chosen.
+  - Account deletion is two steps. `request_account_deletion()` immediately disables sign-in, ends sessions, removes the profile and all cascading content, and anonymises reports. A service-role cleanup, idempotent and retried by a scheduled job, then removes avatar files and the auth identity.
+  - Recent re-authentication means a sign-in within the last 10 minutes, per the session's `amr` claim.
+
+The migrations implement this database subset, not the complete product. The moderation, comment, notification and aggregate/taste features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.

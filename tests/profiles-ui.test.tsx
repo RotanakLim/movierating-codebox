@@ -15,6 +15,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/app/entries/actions", () => ({ deleteEntry: vi.fn() }));
 vi.mock("@/app/watchlist/actions", () => ({ setWatchlisted: vi.fn() }));
+vi.mock("@/app/settings/actions", () => ({ saveTheme: vi.fn() }));
 vi.mock("@/app/lists/actions", () => ({
   createList: vi.fn(),
   deleteList: vi.fn(),
