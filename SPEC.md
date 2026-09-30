@@ -262,4 +262,6 @@ The subsequent database request specifies the concrete names `users`, `movies`, 
   - Reports cover users and reviews, with the database choosing the review's author and keeping a snapshot.
   - Per-user limits on new entries (20 an hour) and reports (10 a day) are enforced in the database and configurable there.
 
+- Social (September 30): the home feeds read `activity_feed` (Community: public ratings and reviews) and a `following_feed` view (accepted follows, with profile access checked per row). People search is the `find_people()` function. Follow requests are limited to 30 per user per hour in the database.
+
 The migrations implement this database subset, not the complete product. The comment, notification and aggregate/taste features remain subsequent work. Trusted movie ingestion must enforce release/adult restrictions before exposing a writable movie, since the cache intentionally omits detailed release metadata. Hosted migration application is a separate deployment step.

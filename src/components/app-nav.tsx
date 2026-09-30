@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bell,
   Bookmark,
   Clapperboard,
   Compass,
@@ -17,7 +18,14 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useProfile } from "@/components/profile-link";
 
-type Item = { href: string; label: string; Icon: LucideIcon; match?: string };
+type Item = {
+  href: string;
+  label: string;
+  Icon: LucideIcon;
+  match?: string;
+  /** A count badge, e.g. pending follow requests. */
+  count?: number;
+};
 
 /**
  * Left navigation on large screens; a top bar with an accessible menu on phones
@@ -38,6 +46,13 @@ export function AppNav() {
       label: "Watchlist",
       Icon: Bookmark,
       match: "/me/watchlist",
+    },
+    {
+      href: "/notifications",
+      label: "Notifications",
+      Icon: Bell,
+      match: "/notifications",
+      count: profile?.requests,
     },
     profile?.username
       ? {
@@ -78,6 +93,15 @@ export function AppNav() {
             >
               <item.Icon size={18} aria-hidden="true" />
               {item.label}
+              {item.count ? (
+                <span className="ml-auto rounded-full bg-accent px-2 py-0.5 text-xs font-semibold text-canvas">
+                  {item.count > 99 ? "99+" : item.count}
+                  <span className="sr-only">
+                    {" "}
+                    pending follow request{item.count === 1 ? "" : "s"}
+                  </span>
+                </span>
+              ) : null}
             </Link>
           </li>
         );

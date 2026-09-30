@@ -24,6 +24,12 @@ export async function follow(
   const { data, error } = await session.supabase.rpc("request_follow", {
     target_id: parsed.data.userId,
   });
+  const retryAfter = rateLimitRetry(error);
+  if (retryAfter !== null)
+    return {
+      ok: false,
+      error: `You've sent a lot of follow requests recently. Try again ${retryPhrase(retryAfter)}.`,
+    };
   if (error)
     return {
       ok: false,

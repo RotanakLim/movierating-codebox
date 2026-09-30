@@ -129,6 +129,7 @@ describe("<AppNav>", () => {
       "Discover",
       "My Movies",
       "Watchlist",
+      "Notifications",
       "Sign in",
       "Settings",
     ]);

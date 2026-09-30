@@ -2,7 +2,8 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { block, follow, unblock, unfollow } from "@/app/profiles/actions";
+import { block, unblock } from "@/app/profiles/actions";
+import { FollowButton } from "@/components/profiles/follow-button";
 import {
   BlockConfirm,
   ReportForm,
@@ -77,44 +78,17 @@ export function SocialControls(props: Props) {
       </div>
     );
 
-  const followLabel =
-    props.followStatus === "accepted"
-      ? "Following"
-      : props.followStatus === "pending"
-        ? "Requested"
-        : props.visibility === "public"
-          ? "Follow"
-          : "Request to follow";
-
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          className={
-            props.followStatus === "accepted" ||
-            props.followStatus === "pending"
-              ? "button-secondary"
-              : "button-primary"
+        <FollowButton
+          userId={props.userId}
+          username={props.username}
+          visibility={props.visibility}
+          initial={
+            props.followStatus === "declined" ? null : props.followStatus
           }
-          aria-pressed={props.followStatus === "accepted"}
-          disabled={pending}
-          onClick={() =>
-            props.followStatus === "accepted" ||
-            props.followStatus === "pending"
-              ? run(() => unfollow({ userId: props.userId }))
-              : run(() => follow({ userId: props.userId }))
-          }
-          title={
-            props.followStatus === "accepted"
-              ? "Unfollow"
-              : props.followStatus === "pending"
-                ? "Cancel request"
-                : undefined
-          }
-        >
-          {pending ? "Working…" : followLabel}
-        </button>
+        />
         <button
           type="button"
           className="text-sm text-muted hover:text-ink"
