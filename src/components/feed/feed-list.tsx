@@ -3,7 +3,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { LoaderCircle } from "lucide-react";
 import { Avatar } from "@/components/avatar";
+import { LoadError } from "@/components/load-error";
 import { MoviePoster } from "@/components/movies/poster";
+import { getJson } from "@/lib/http/get-json";
 import { formatScore } from "@/lib/entries/score";
 import { avatarUrl } from "@/lib/profiles/avatar-url";
 import type { FeedItem, FeedPage, FeedTab } from "@/lib/feed/types";
@@ -99,7 +101,7 @@ export function FeedList({
 }) {
   const [page, setPage] = useState(initial);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   async function loadMore() {
     if (!page.nextCursor || loading) return;
@@ -107,15 +109,10 @@ export function FeedList({
     setError(null);
     try {
       const query = new URLSearchParams({ tab, cursor: page.nextCursor });
-      const response = await fetch(`/api/feed?${query}`);
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(
-          typeof body.error === "string"
-            ? body.error
-            : "The feed is unavailable right now.",
-        );
-      const next = body as FeedPage;
+      const next = await getJson<FeedPage>(
+        `/api/feed?${query}`,
+        "The feed is unavailable right now.",
+      );
       setPage((current) => {
         const seen = new Set(current.items.map((item) => item.id));
         return {
@@ -127,11 +124,7 @@ export function FeedList({
         };
       });
     } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : "The feed is unavailable right now.",
-      );
+      setError(failure);
     } finally {
       setLoading(false);
     }
@@ -148,11 +141,7 @@ export function FeedList({
           </li>
         ))}
       </ul>
-      {error && (
-        <p role="alert" className="mt-4 text-sm text-muted">
-          {error}
-        </p>
-      )}
+      {error !== null && <LoadError error={error} />}
       {page.nextCursor && (
         <button
           type="button"
@@ -167,7 +156,7 @@ export function FeedList({
               aria-hidden="true"
             />
           )}
-          {loading ? "Loading…" : "Load more"}
+          {loading ? "Loading…" : error !== null ? "Try again" : "Load more"}
         </button>
       )}
     </div>

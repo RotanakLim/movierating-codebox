@@ -1479,3 +1479,20 @@ select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000074
 select codebox_test.denied($q$select public.request_follow('00000000-0000-0000-0000-000000000070')$q$, '42501', 'no new follow events across a block');
 reset role;
 select set_config('request.jwt.claim.sub', '', false);
+
+-- Feed performance (20260930001500): per-row access checks are plpgsql (cached
+-- plans), with the same answers at the edges; the privacy matrix above covers the rest.
+select codebox_test.ok((select bool_and(l.lanname = 'plpgsql') from pg_proc p
+  join pg_language l on l.oid = p.prolang join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'codebox_private' and p.proname in ('can_view_profile', 'can_view_activity', 'comment_state')),
+  'per-row access checks are plpgsql so their plans are cached');
+select codebox_test.ok(not codebox_private.can_view_profile(null) and not codebox_private.can_view_profile(gen_random_uuid()),
+  'unknown or missing profiles are not viewable');
+select codebox_test.ok(not codebox_private.can_view_activity(null) and not codebox_private.can_view_activity(gen_random_uuid()),
+  'unknown activity is not viewable');
+select codebox_test.ok(pg_get_viewdef('public.activity_feed'::regclass) ilike '%lateral%offset 0%',
+  'activity_feed looks up authors and scores per row instead of building whole views');
+select codebox_test.ok((select array_agg(column_name::text order by ordinal_position) from information_schema.columns
+  where table_schema = 'public' and table_name = 'activity_feed')
+  = array['id','user_id','movie_id','entry_id','kind','created_at','username','avatar','title','poster','year','score','summary'],
+  'activity_feed keeps its columns');

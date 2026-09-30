@@ -1,6 +1,7 @@
 "use client";
 import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { usePanelFocus } from "@/components/use-panel-focus";
 import {
   block,
   reportComment,
@@ -27,23 +28,32 @@ export function BlockConfirm({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const confirm = usePanelFocus<HTMLButtonElement>();
   return (
     <div
       role="group"
       aria-label={`Block @${username}`}
       className="rounded-xl border border-line p-4 text-sm"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !pending) onCancel();
+      }}
     >
       <p>{blockDisclosure(username)}</p>
       <div className="mt-3 flex gap-3">
         <button
+          ref={confirm}
           type="button"
-          className="font-semibold text-red-700 hover:underline dark:text-red-300"
+          className="tap-target font-semibold text-red-700 hover:underline dark:text-red-300"
           disabled={pending}
           onClick={onConfirm}
         >
           {pending ? "Blocking…" : `Block @${username}`}
         </button>
-        <button type="button" className="text-muted" onClick={onCancel}>
+        <button
+          type="button"
+          className="tap-target text-muted"
+          onClick={onCancel}
+        >
           Cancel
         </button>
       </div>
@@ -80,6 +90,7 @@ export function ReportForm({
   const [details, setDetails] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const firstReason = usePanelFocus<HTMLInputElement>();
   const title =
     target.kind === "user"
       ? `Report @${target.username}`
@@ -87,6 +98,9 @@ export function ReportForm({
   return (
     <form
       className="space-y-3 rounded-xl border border-line p-4"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !pending) onCancel?.();
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         setError(null);
@@ -122,6 +136,7 @@ export function ReportForm({
             className="mb-1 flex items-center gap-2 font-normal"
           >
             <input
+              ref={value === REASONS[0][0] ? firstReason : undefined}
               type="radio"
               name={`${id}-reason`}
               value={value}

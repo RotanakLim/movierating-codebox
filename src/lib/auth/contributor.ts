@@ -5,12 +5,16 @@ import { createClient } from "@/lib/supabase/server";
 import { readUsername } from "@/lib/onboarding/profile";
 import type { Database } from "@/lib/supabase/database.types";
 
-export type ActionResult<T = object> =
-  ({ ok: true } & T) | { ok: false; error: string };
+/** SIGN_IN_REQUIRED lets the client offer a sign-in link (e.g. an expired session). */
+export type ActionFailure = {
+  ok: false;
+  error: string;
+  code?: "SIGN_IN_REQUIRED";
+};
+export type ActionResult<T = object> = ({ ok: true } & T) | ActionFailure;
 
 type Contributor =
-  | { ok: true; user: User; supabase: SupabaseClient<Database> }
-  | { ok: false; error: string };
+  { ok: true; user: User; supabase: SupabaseClient<Database> } | ActionFailure;
 
 /**
  * Gate for every social or collection mutation: getUser() (never getSession()), a
@@ -19,7 +23,12 @@ type Contributor =
  */
 export async function requireContributor(): Promise<Contributor> {
   const user = await getUser();
-  if (!user) return { ok: false, error: "Sign in to continue." };
+  if (!user)
+    return {
+      ok: false,
+      error: "Sign in to continue.",
+      code: "SIGN_IN_REQUIRED",
+    };
   if (!user.email_confirmed_at)
     return { ok: false, error: "Confirm your email to continue." };
   const supabase = await createClient();

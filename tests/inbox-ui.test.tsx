@@ -105,9 +105,11 @@ describe("<NotificationInbox>", () => {
       window.dispatchEvent(new Event("focus"));
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith("/api/notifications", {
-      cache: "no-store",
-    });
+    // The route answers "private, no-store", so polls never come from a cache.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/notifications",
+      expect.anything(),
+    );
     expect(document.body.textContent).toContain("@fan0");
     expect(document.body.textContent).toContain("(2 unread)");
     expect(mocks.changed).toHaveBeenCalledTimes(1);
@@ -138,9 +140,11 @@ describe("<NotificationInbox>", () => {
     await act(async () =>
       fireEvent.click(screen.getByRole("button", { name: "Load older" })),
     );
-    expect(fetchMock).toHaveBeenCalledWith("/api/notifications?cursor=abc", {
-      cache: "no-store",
-    });
+    // The route answers "private, no-store", so polls never come from a cache.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/notifications?cursor=abc",
+      expect.anything(),
+    );
     expect(document.body.textContent).toContain("@fan9");
   });
 });

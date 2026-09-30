@@ -124,6 +124,10 @@ describe("search route", () => {
       ),
     );
     expect(response.status).toBe(200);
+    // Same for every viewer: shared caches may keep it for the 5-minute search TTL.
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=0, s-maxage=300, stale-while-revalidate=60",
+    );
     expect(mocks.user).not.toHaveBeenCalled();
     // Search stays limited per client IP even though results are cached.
     expect(mocks.limit).toHaveBeenCalledWith("search", expect.any(Headers));
@@ -142,6 +146,7 @@ describe("search route", () => {
       new NextRequest("https://codebox.test/api/movies/search?q=dune"),
     );
     expect(response.status).toBe(429);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(mocks.search).not.toHaveBeenCalled();
   });
   it("rejects invalid pagination before provider calls", async () => {

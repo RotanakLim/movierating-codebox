@@ -9,8 +9,13 @@ export async function GET(request: NextRequest) {
     const filters = searchFilters(request.nextUrl.searchParams);
     requireTmdbToken();
     await limitMovieRequest("search", request.headers);
+    // Results are public and the same for every viewer, so shared caches may keep
+    // them as long as the server's own search cache (5 minutes). Errors stay private.
     return NextResponse.json(await searchMovies(filters), {
-      headers: { "Cache-Control": "private, no-store" },
+      headers: {
+        "Cache-Control":
+          "public, max-age=0, s-maxage=300, stale-while-revalidate=60",
+      },
     });
   } catch (error) {
     return movieErrorResponse(error);

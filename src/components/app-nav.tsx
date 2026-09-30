@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -35,7 +35,19 @@ export function AppNav() {
   const pathname = usePathname();
   const profile = useProfile();
   const [open, setOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
   useEffect(() => setOpen(false), [pathname]);
+  // Escape closes the open menu and puts focus back on its button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      menuButton.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const items: Item[] = [
     { href: "/", label: "Home", Icon: House },
@@ -131,6 +143,7 @@ export function AppNav() {
           <div className="flex items-center gap-2">
             <ThemeToggle signedIn={Boolean(profile?.username)} />
             <button
+              ref={menuButton}
               type="button"
               className="rounded-lg p-2 text-muted hover:text-ink"
               aria-expanded={open}
