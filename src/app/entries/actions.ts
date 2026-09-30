@@ -1,4 +1,7 @@
 "use server";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { requireContributor, type ActionResult } from "@/lib/auth/contributor";
 import { getUser } from "@/lib/auth/user";
 import { createClient } from "@/lib/supabase/server";
 import { ensureMovieCached } from "@/lib/movies/ensure-cached";
@@ -118,4 +121,30 @@ export async function saveEntry(input: unknown): Promise<SaveEntryResult> {
       "This entry changed somewhere else. Reload to see the latest version.",
     );
   return { ok: true, entry: data[0] };
+}
+
+/**
+ * Delete one of the signed-in user's entries. The database cascades its feed
+ * event, and the community average and collections recompute on read.
+ */
+export async function deleteEntry(input: unknown): Promise<ActionResult> {
+  const parsed = z.object({ id: z.uuid() }).strict().safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Choose an entry." };
+  const session = await requireContributor();
+  if (!session.ok) return session;
+  const { data, error } = await session.supabase
+    .from("entries")
+    .delete()
+    .eq("id", parsed.data.id)
+    .eq("user_id", session.user.id)
+    .select("id");
+  if (error)
+    return {
+      ok: false,
+      error: "We couldn't delete that entry. Please try again.",
+    };
+  if (!data.length)
+    return { ok: false, error: "That entry was already deleted." };
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

@@ -18,10 +18,11 @@ import { formatScore } from "@/lib/entries/score";
 import { todayIn } from "@/lib/entries/dates";
 import { WatchlistToggle } from "@/components/movies/watchlist-toggle";
 import { ReviewList } from "@/components/reviews/review-list";
+import { AddToLists } from "@/components/movies/add-to-lists";
 
 type PageProps = {
   params: Promise<{ tmdbId: string }>;
-  searchParams: Promise<{ from?: string; compose?: string }>;
+  searchParams: Promise<{ from?: string; compose?: string; edit?: string }>;
 };
 type MovieLookup =
   | { status: "found"; movie: MovieDetails }
@@ -66,7 +67,7 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
   const { tmdbId } = await params;
   const result = await loadMovie(tmdbId);
   if (result.status === "missing") notFound();
-  const { from, compose } = await searchParams;
+  const { from, compose, edit } = await searchParams;
   const source = safeNext(from, "/discover");
   const back = source.split("?")[0] === "/discover" ? source : "/discover";
   if (result.status === "unavailable") {
@@ -90,7 +91,7 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
     );
   }
   const { movie } = result;
-  const [{ viewer, entries, watchlisted }, summary, reviews] =
+  const [{ viewer, entries, watchlisted, lists }, summary, reviews] =
     await Promise.all([
       loadViewerEntries(movie.id),
       loadRatingSummary(movie.id),
@@ -120,6 +121,9 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
             initial={watchlisted}
             viewer={viewer.status}
           />
+          {viewer.status === "ready" && (
+            <AddToLists movieId={movie.id} lists={lists} />
+          )}
         </div>
         <div className="min-w-0 max-w-2xl">
           <p className="eyebrow mb-4">THE MOVIE COLLECTION</p>
@@ -245,6 +249,7 @@ export default async function MoviePage({ params, searchParams }: PageProps) {
             compose={compose === "rate" || compose === "log" ? compose : null}
             opensOn={movie.availableFrom}
             serverToday={todayIn("UTC")}
+            editId={edit ?? null}
           />
           <a
             href={`https://www.themoviedb.org/movie/${movie.id}`}
