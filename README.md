@@ -103,12 +103,15 @@ The token-hash confirmation route allows email links to work across browsers. Re
 
 ## Google setup
 
+Google sign-in is **optional** and off by default: the sign-in and sign-up pages show no Google button, and the Google action refuses, until you set `GOOGLE_AUTH_ENABLED=true` (a server-only environment variable; redeploy after changing it). Email and password sign-in works without it. Turn it on only after the steps below are done; otherwise a Google button would lead to Supabase's "provider is not enabled" error.
+
 1. In Google Cloud / Google Auth Platform, configure the consent screen, audience, and test users if the app is in testing mode. Request only basic OpenID/email/profile access.
 2. Create an OAuth client of type **Web application**.
 3. Add the app's development and deployed origins under Authorized JavaScript origins.
 4. Add the **Supabase** callback URL shown in the Supabase Google provider panel to Google's Authorized redirect URIs: `https://<project-ref>.supabase.co/auth/v1/callback`. This is different from your app's `/auth/callback` route.
 5. Enable Google in Supabase Authentication → Providers and enter the Google Client ID and Client Secret **there**.
 6. Ensure the app's `/auth/callback` URLs are in Supabase's redirect allowlist (previous section).
+7. Set `GOOGLE_AUTH_ENABLED=true` in Vercel (and `.env.local` for development) and redeploy.
 
 The flow is app → Supabase → Google → Supabase → app `/auth/callback`. The app exchanges the PKCE authorization code for a cookie-based session. Canceled, missing, or expired codes produce a recoverable error page. See [Supabase Google setup](https://supabase.com/docs/guides/auth/social-login/auth-google).
 
@@ -339,10 +342,10 @@ Scenario coverage:
 
 For the database side of performance, see [DATABASE.md → Performance checks](DATABASE.md#performance-checks).
 
-After setting up your real project, manually verify: signup → email confirmation → account; bad password; resend; password reset → change password → fresh login; Google success/cancel; refresh while signed in; sign-out → protected redirect. Test a non-team email to confirm SMTP readiness. Automated mocks cannot establish that a real Google client, SMTP service, or Supabase redirect configuration is correct.
+After setting up your real project, manually verify: signup → email confirmation → account; bad password; resend; password reset → change password → fresh login; Google success/cancel (only if `GOOGLE_AUTH_ENABLED=true`); refresh while signed in; sign-out → protected redirect. Test a non-team email to confirm SMTP readiness. Automated mocks cannot establish that a real Google client, SMTP service, or Supabase redirect configuration is correct.
 
 ## Deploy to Vercel
 
-Import this repository as a Next.js project. Add all seven environment values, set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. `vercel.json` schedules the daily account-deletion retry; Vercel sends `CRON_SECRET` automatically once it is set. Auth secrets and test accounts are not bundled in the repository.
+Import this repository as a Next.js project. Add all seven required environment values (plus `GOOGLE_AUTH_ENABLED=true` only if you set up Google), set the canonical HTTPS origin, and update Supabase and Google origins/redirects. Build with `npm run build`. Do not deploy this repo with `.env.local` committed. Do not add service-role keys to browser variables. `vercel.json` schedules the daily account-deletion retry; Vercel sends `CRON_SECRET` automatically once it is set. Auth secrets and test accounts are not bundled in the repository.
 
 Official references: [Next.js 15 installation](https://nextjs.org/docs/15/app/getting-started/installation), [Supabase SSR](https://supabase.com/docs/guides/auth/server-side/creating-a-client), [email/password authentication](https://supabase.com/docs/guides/auth/passwords).

@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getPublicConfig } from "@/lib/env";
+import { getPublicConfig, googleAuthEnabled } from "@/lib/env";
 import { safeNext } from "@/lib/auth/redirect";
 import { destinationAfterAuth } from "@/lib/onboarding/profile";
 import type { AuthState } from "@/lib/auth/types";
@@ -111,6 +111,8 @@ export async function signInWithGoogle(
 ): Promise<AuthState> {
   const config = getPublicConfig();
   if (!config) return unavailable;
+  if (!googleAuthEnabled())
+    return { error: "Google sign-in isn't available. Use your email instead." };
   let destination: string | undefined;
   try {
     const supabase = await createClient();

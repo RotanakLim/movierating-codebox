@@ -28,6 +28,16 @@ export function getPublicConfig() {
   }
 }
 
+/**
+ * Google sign-in is optional. It stays off (no button, and the action refuses)
+ * until GOOGLE_AUTH_ENABLED is "true", which you set once the Google provider is
+ * configured in Supabase. Server-only and read per request, so changing it in
+ * Vercel takes effect on the next deploy without a code change.
+ */
+export function googleAuthEnabled() {
+  return process.env.GOOGLE_AUTH_ENABLED?.trim().toLowerCase() === "true";
+}
+
 export function requirePublicConfig() {
   const config = getPublicConfig();
   if (!config)

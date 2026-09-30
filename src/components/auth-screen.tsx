@@ -1,5 +1,5 @@
 import { AuthForm } from "@/components/auth-form";
-import { getPublicConfig } from "@/lib/env";
+import { getPublicConfig, googleAuthEnabled } from "@/lib/env";
 import type { AuthMode } from "@/lib/auth/types";
 const copy = {
   "sign-in": ["Welcome back.", "Your next great movie starts here."],
@@ -46,7 +46,12 @@ export function AuthScreen({
           is connected to Supabase.
         </div>
       )}
-      <AuthForm mode={mode} next={next} configured={configured} />
+      <AuthForm
+        mode={mode}
+        next={next}
+        configured={configured}
+        google={googleAuthEnabled()}
+      />
     </div>
   );
 }
