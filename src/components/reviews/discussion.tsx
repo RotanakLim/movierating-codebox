@@ -516,7 +516,8 @@ export function Discussion({
             {threads.map((thread) => (
               <li
                 key={thread.id}
-                className="rounded-2xl border border-line bg-surface p-4"
+                id={`comment-${thread.id}`}
+                className="scroll-mt-6 rounded-2xl border border-line bg-surface p-4"
               >
                 <CommentItem
                   comment={thread}
@@ -537,7 +538,11 @@ export function Discussion({
                 {thread.replies.length > 0 && (
                   <ul className="mt-4 space-y-4 border-l-2 border-line pl-4">
                     {thread.replies.map((reply) => (
-                      <li key={reply.id}>
+                      <li
+                        key={reply.id}
+                        id={`comment-${reply.id}`}
+                        className="scroll-mt-6"
+                      >
                         <CommentItem
                           comment={reply}
                           canInteract={!!viewer}

@@ -23,7 +23,7 @@ type Item = {
   label: string;
   Icon: LucideIcon;
   match?: string;
-  /** A count badge, e.g. pending follow requests. */
+  /** A count badge, e.g. unread notifications. */
   count?: number;
 };
 
@@ -52,7 +52,7 @@ export function AppNav() {
       label: "Notifications",
       Icon: Bell,
       match: "/notifications",
-      count: profile?.requests,
+      count: profile?.unread,
     },
     profile?.username
       ? {
@@ -98,7 +98,7 @@ export function AppNav() {
                   {item.count > 99 ? "99+" : item.count}
                   <span className="sr-only">
                     {" "}
-                    pending follow request{item.count === 1 ? "" : "s"}
+                    unread notification{item.count === 1 ? "" : "s"}
                   </span>
                 </span>
               ) : null}

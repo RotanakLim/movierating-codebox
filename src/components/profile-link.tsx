@@ -5,15 +5,18 @@ import { saveTheme } from "@/app/settings/actions";
 import { applyTheme, isTheme, storedTheme } from "@/lib/settings/theme";
 
 /** null = guest; username null = signed in but onboarding not finished. */
-export type Profile = { username: string | null; requests: number } | null;
+export type Profile = { username: string | null; unread: number } | null;
 const PROFILE_CHANGED = "codebox:profile-changed";
 
 /** Render after a server-side profile change (e.g. a claimed username). */
 export function NotifyProfileChanged() {
-  useEffect(() => {
-    window.dispatchEvent(new Event(PROFILE_CHANGED));
-  }, []);
+  useEffect(() => notifyProfileChanged(), []);
   return null;
+}
+
+/** Ask the nav to reload the profile (username, unread badge) now. */
+export function notifyProfileChanged() {
+  window.dispatchEvent(new Event(PROFILE_CHANGED));
 }
 
 /** Supabase stores the session in a readable cookie named sb-<ref>-auth-token. */
@@ -81,7 +84,7 @@ export function useProfile(): Profile {
             ? {
                 username:
                   typeof body.username === "string" ? body.username : null,
-                requests: typeof body.requests === "number" ? body.requests : 0,
+                unread: typeof body.unread === "number" ? body.unread : 0,
               }
             : null,
         );

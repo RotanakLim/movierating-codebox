@@ -4,10 +4,10 @@ import { requireOnboardedUser } from "@/lib/profiles/load";
 import { loadInbox, type InboxPerson } from "@/lib/people/inbox";
 import { avatarUrl } from "@/lib/profiles/avatar-url";
 import { Avatar } from "@/components/avatar";
-import {
-  FollowRequest,
-  RemoveFollowerButton,
-} from "@/components/settings/controls";
+import { FollowRequest } from "@/components/settings/controls";
+import { NotificationInbox } from "@/components/notifications/inbox";
+import { loadNotifications } from "@/lib/notifications/load";
+import type { NotificationPage } from "@/lib/notifications/types";
 import { FollowButton } from "@/components/profiles/follow-button";
 
 export const metadata: Metadata = {
@@ -35,18 +35,29 @@ function Who({ person }: { person: InboxPerson }) {
 }
 
 /**
- * Follow activity. Only real follow rows are shown; the full notification inbox
- * (comments, replies, unread counts) is a later milestone.
+ * The inbox: pending follow requests to act on, then notifications (follows,
+ * comments on your reviews, replies to your comments), then requests you sent.
  */
 export default async function NotificationsPage() {
   const { user, supabase } = await requireOnboardedUser("/notifications");
-  const inbox = await loadInbox(supabase, user.id);
+  const [inbox, page] = await Promise.all([
+    loadInbox(supabase, user.id),
+    loadNotifications(supabase, null).catch((): NotificationPage => ({
+      items: [],
+      nextCursor: null,
+      unread: 0,
+    })),
+  ]);
 
   return (
     <section className="mx-auto max-w-2xl space-y-12 py-10 sm:py-14">
       <h1 className="font-display text-4xl">Notifications</h1>
 
-      <section aria-labelledby="requests-heading">
+      <section
+        id="requests"
+        aria-labelledby="requests-heading"
+        className="scroll-mt-6"
+      >
         <h2 id="requests-heading" className="mb-4 text-lg font-semibold">
           Follow requests
         </h2>
@@ -66,48 +77,7 @@ export default async function NotificationsPage() {
         )}
       </section>
 
-      <section aria-labelledby="followers-heading">
-        <h2 id="followers-heading" className="mb-4 text-lg font-semibold">
-          New followers
-        </h2>
-        {inbox.followers.length ? (
-          <ul className="divide-y divide-line rounded-2xl border border-line">
-            {inbox.followers.map((person) => (
-              <li
-                key={person.id}
-                className="flex flex-wrap items-center justify-between gap-3 p-4"
-              >
-                <div className="min-w-0">
-                  <Who person={person} />
-                  <p className="mt-1 text-xs text-muted">
-                    Started following you {when(person.at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <FollowButton
-                    userId={person.id}
-                    username={person.username}
-                    initial={person.followBack}
-                    followBack
-                  />
-                  <RemoveFollowerButton
-                    userId={person.id}
-                    username={person.username}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">
-            No new followers in the last 30 days.{" "}
-            <Link href="/people" className="text-accent underline">
-              Find people to follow
-            </Link>
-            .
-          </p>
-        )}
-      </section>
+      <NotificationInbox initial={page} />
 
       <section aria-labelledby="sent-heading">
         <h2 id="sent-heading" className="mb-4 text-lg font-semibold">
