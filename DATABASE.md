@@ -34,6 +34,7 @@ Files:
 5. `supabase/migrations/20260930000200_remove_decimal_score.sql` and `20260930000300_decimal_score_only.sql`: switch the rating to a star scale and back; the net result is the decimal `score` as the only rating.
 6. `supabase/migrations/20260930000400_occasional_limit_cleanup.sql`: the quota RPC deletes day-old counters on about 1% of calls instead of every call.
 7. `supabase/migrations/20260930000500_onboarding.sql`: `codebox_private.valid_username()` (the single source of username rules, now used by `users_username_format`), the `username_status()` availability RPC, owner-only `user_preferences` (favorite genres) and `user_favorite_movies` (up to five), and the `set_favorite_movies()` RPC.
+8. `supabase/migrations/20260930000600_entries.sql`: renames `rankings` → `entries`, `current_rankings` → `current_entries`, `activity.ranking_id` → `entry_id`, the `ranked` activity kind → `rated`, and the guard/sync functions, constraints, indexes, policies and triggers to match. `score` becomes plain `numeric` so the database rejects extra decimals instead of rounding them.
 
 `POST /api/movies/cache` (no UI caller yet; rating and watchlist actions will use it) accepts only a TMDB ID. After checking session, verified email, origin, and quota, the server fetches trusted TMDB metadata and performs an idempotent service-role upsert. Browser clients still have no direct movie mutation grants.
 
@@ -45,22 +46,22 @@ Each migration is transactional and intended to run once through migration track
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `users`                | `id` references `auth.users`; username, avatar object path, `profile` JSON with only display_name/bio, visibility, timestamps. No email/password copies.                  |
 | `movies`               | `tmdb_id` primary key; cached title, poster path, year, cached_at. No full TMDB JSON, cast, or synopsis copies.                                                           |
-| `rankings`             | An editable watch/review entry: user_id, movie_id, optional score, note, watched_date; plus spoiler flag, watched flag, timezone, version, timestamps.                    |
+| `entries`              | An editable watch/review entry: user_id, movie_id, optional score, note, watched_date; plus spoiler flag, watched flag, timezone, version, timestamps.                    |
 | `follows`              | Unique directional pair using the requested `follower_id` / `following_id` names; status pending/accepted/declined and timestamps. Mutual accepted rows imply friendship. |
 | `lists`                | One automatically provisioned watchlist per user, plus owner-created custom lists. Both inherit profile visibility.                                                       |
 | `list_items`           | Movies belonging to a list; unique list/movie pair, optional ordering position, added_at.                                                                                 |
 | `activity`             | One structured event per ranking entry. Clients cannot fabricate feed rows.                                                                                               |
 | `user_preferences`     | Owner-only onboarding/settings preferences: `favorite_genre_ids` (TMDB movie genre IDs, deduplicated and validated).                                                      |
-| `user_favorite_movies` | Owner-only, at most five per user, each referencing a cached `movies` row; shown in the order picked. Never creates rankings, activity, or watch logs.                    |
+| `user_favorite_movies` | Owner-only, at most five per user, each referencing a cached `movies` row; shown in the order picked. Never creates entries, activity, or watch logs.                     |
 | `blocks`               | Supporting table for the SPEC's bidirectional block filtering and removal of follow relationships.                                                                        |
 
 ### Entries, repeat watches, and scores
 
-The only rating is a **decimal score from 0.0 to 10.0** with one decimal place (e.g. 1.0, 5.0, 9.5), stored as `score numeric(3,1)`. NULL means unrated. There are no star ratings, buckets, comparisons, or manual ranking positions. `numeric(3,1)` rounds extra decimals, so server validation must reject values with more than one decimal place before writing. Migration `20260930000300_decimal_score_only.sql` removed the half-star rating, converting `star_half_units` 2–10 to scores 2.0–10.0 (4.5 stars = 9.0).
+The only rating is a **decimal score from 0.0 to 10.0** with one decimal place (e.g. 1.0, 5.0, 9.5), stored as `entries.score` (`numeric`). NULL means unrated. There are no star ratings, buckets, comparisons, or manual ranking positions. The `guard_entry` trigger rejects values with more than one decimal place (`23514`) instead of rounding them, then stores accepted values with one decimal place (8 → 8.0); a check constraint enforces 0–10. Migration `20260930000300_decimal_score_only.sql` removed the half-star rating, converting `star_half_units` 2–10 to scores 2.0–10.0 (4.5 stars = 9.0).
 
 A ranking row represents a diary/review entry, allowing repeat watches of the same movie. Do not add a unique `(user_id, movie_id)` constraint: that would discard the SPEC's history. Custom lists are separately stored in `lists`/`list_items`; visitors can independently sort a profile collection.
 
-`current_rankings` selects one **rated** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a rating; deleting the current entry reveals the previous eligible one. `public_current_ratings` exposes just the public rating fields with the same precedence, without dates.
+`current_entries` selects one **rated** entry per user/movie, ordered by known watch date descending, then created_at and UUID descending. Known dates beat unknown dates. A later unrated watch does not erase a rating; deleting the current entry reveals the previous eligible one. `public_current_ratings` exposes just the public rating fields with the same precedence, without dates.
 
 `watched_date = NULL` means unknown for a watched entry, and is required for an unwatched entry. The UI should supply local today and its IANA `watched_timezone`; the database checks that the date is not in the future in that timezone. SQL defaults to unknown date and UTC when these values are omitted. Watched-only entries and note-only entries are allowed; an entirely empty unwatched entry is rejected.
 
@@ -70,7 +71,7 @@ Persist a client-generated UUID across retries and supply it as the ranking `id`
 
 ### Privacy and public projections
 
-`users`, raw `rankings`, lists, and list contents use profile visibility: public / followers / friends / private. Owners always have access. Followers require an accepted inbound follow; friends require accepted follows in both directions. An ordinary private-profile user cannot make all their reviews private: public review content is intentionally still public, as specified.
+`users`, raw `entries`, lists, and list contents use profile visibility: public / followers / friends / private. Owners always have access. Followers require an accepted inbound follow; friends require accepted follows in both directions. An ordinary private-profile user cannot make all their reviews private: public review content is intentionally still public, as specified.
 
 Read `user_identities` for public username/avatar, and `public_reviews` for public scoring/note/spoiler fields. These intentionally use narrow security-barrier definer views because public reviews must remain readable even when raw private diaries are not. **Never add private columns to these views.** They explicitly filter blocked authors. Other views use invoker security and underlying RLS. Public projections have SELECT-only grants.
 
@@ -81,8 +82,8 @@ The current-rating views are viewer-filtered for blocks. A future global average
 ## Client permissions
 
 - Guests: read movies, accessible profiles/collections/lists, public identities/reviews, and permitted activity. No mutation grants.
-- Authenticated users: select an immutable username, update their own avatar/profile/privacy; create/edit/delete **only their own** rankings and custom lists; manage only their own list items and blocks.
-- Ranking/list/social contributions additionally require a confirmed email and an onboarded username. The check reads `auth.users`, not editable user metadata.
+- Authenticated users: select an immutable username, update their own avatar/profile/privacy; create/edit/delete **only their own** entries and custom lists; manage only their own list items and blocks.
+- Entry/list/social contributions additionally require a confirmed email and an onboarded username. The check reads `auth.users`, not editable user metadata.
 - Onboarding: `username_status(candidate)` (signed-in only) returns `available`, `taken`, `invalid`, or `reserved`; it runs with definer rights so private or blocking accounts' names still count as taken. A username can be claimed once (the update must match `username is null`); duplicates fail with `23505`, reserved or malformed names with `23514`. `set_favorite_movies(movie_ids)` atomically replaces the caller's favorites under RLS. Preferences are written update-then-insert, because clients have no `UPDATE` grant on `user_id` and PostgREST upserts set every column.
 - Clients cannot mutate movie cache data, feed events, author IDs, creation timestamps, or follow status directly.
 - `service_role`: trusted database access, bypassing RLS as Supabase intends. Only server-side TMDB cache refresh and future administrative operations should use it. Never put it in `NEXT_PUBLIC_*`.
@@ -109,7 +110,7 @@ await supabase
 
 const entryId = crypto.randomUUID(); // Keep this same value across retries.
 const { data, error } = await supabase
-  .from("rankings")
+  .from("entries")
   .insert({
     id: entryId,
     movie_id: 693134, // Must already exist in the minimal cache.
@@ -124,7 +125,7 @@ const { data, error } = await supabase
 
 // Stale edits return no rows when the expected version no longer matches.
 await supabase
-  .from("rankings")
+  .from("entries")
   .update({ note: "Updated thoughts." })
   .eq("id", entry.id)
   .eq("version", entry.version)
@@ -159,7 +160,7 @@ await supabase
   .limit(20);
 ```
 
-For a Community feed, include only `ranked`/`reviewed` events. For Following, filter actors by the viewer's accepted outbound follows; RLS still rechecks each event. Cursor pagination should use `(created_at, id)`; relevant indexes are provided. Editing an entry updates its displayed rating without adding a second event or bumping publication time.
+For a Community feed, include only `rated`/`reviewed` events. For Following, filter actors by the viewer's accepted outbound follows; RLS still rechecks each event. Cursor pagination should use `(created_at, id)`; relevant indexes are provided. Editing an entry updates its displayed rating without adding a second event or bumping publication time.
 
 `request_follow` accepts public targets immediately and creates pending requests for restricted targets. Only the recipient can approve or decline. A decline has a 24-hour retry cooldown; removing or blocking/unblocking a declined relationship does not erase it. Follow and block operations serialize by user pair to avoid approval/block races. Blocking removes pending and accepted follows in both directions; unblocking does not restore them. Public content remains readable when signed out.
 

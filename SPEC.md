@@ -73,7 +73,7 @@ Discovery has title search, genre and year filters, and pagination. Search is de
 
 ## 6. Logging, ratings, and personal movie collections
 
-Rating scale is a decimal score from 0.0 to 10.0 with exactly one decimal place (e.g. 1.0, 5.0, 9.5). Store `numeric(3,1)`; NULL means unrated. Values outside 0.0–10.0 or with more than one decimal place are invalid. There is no star rating. The control supports mouse, keyboard, touch, and explicit accessible text such as “9.5 out of 10.”
+Rating scale is a decimal score from 0.0 to 10.0 with exactly one decimal place (e.g. 1.0, 5.0, 9.5). Store it as a `numeric` that the database rejects (never rounds) beyond one decimal place; NULL means unrated. Values outside 0.0–10.0 or with more than one decimal place are invalid. There is no star rating. The control supports mouse, keyboard, touch, and explicit accessible text such as “9.5 out of 10.”
 
 An entry contains optional rating, optional review text, spoiler flag, watched boolean, nullable watch date, creation/update timestamps, and author/movie IDs. It must contain at least a watched flag, a rating, or nonempty review text. Review text is plain text with line breaks, maximum 5,000 characters; the spoiler flag is a control, not a requirement to type Markdown syntax.
 
@@ -238,12 +238,12 @@ Release checklist: migrations applied; RLS tests pass; auth email delivery verif
 
 ## 15. Core database implementation amendment (September 29, 2026)
 
-The subsequent database request specifies the concrete names `users`, `movies`, `rankings`, `follows`, `lists`, and `activity`. These supersede the suggested names in section 11 for the implemented core. Supporting `list_items` and `blocks` tables provide list membership and the existing privacy/blocking contract. `DATABASE.md` is the integration reference for these migrations.
+The subsequent database request specifies the concrete names `users`, `movies`, `rankings` (renamed to `entries` on September 30), `follows`, `lists`, and `activity`. These supersede the suggested names in section 11 for the implemented core. Supporting `list_items` and `blocks` tables provide list membership and the existing privacy/blocking contract. `DATABASE.md` is the integration reference for these migrations.
 
 - `users` contains username/avatar, a constrained profile object (display_name/bio), and profile visibility. Auth owns email/password. Safe identity and review projections preserve the section 8 privacy boundary.
 - `movies` caches only TMDB ID, title, poster path, year, and cache time. Detailed movie metadata stays with TMDB.
-- `rankings` takes the place of the suggested `entries` table: multiple editable entries per user/movie preserve the diary. The only rating is the decimal `score` (0.0–10.0, one decimal place; NULL = unrated). There are no star ratings, buckets, comparisons, or manual ranking positions.
-- `current_rankings` and `public_current_ratings` apply the existing known-date / unknown-date / creation-time / ID precedence. A watch with no score does not replace a rated opinion. Raw collections follow profile privacy; public projections omit watch metadata.
+- `entries` (created as `rankings`, renamed on September 30): multiple editable entries per user/movie preserve the diary. The only rating is the decimal `score` (0.0–10.0, one decimal place; NULL = unrated). There are no star ratings, buckets, comparisons, or manual ranking positions.
+- `current_entries` and `public_current_ratings` apply the existing known-date / unknown-date / creation-time / ID precedence. A watch with no score does not replace a rated opinion. Raw collections follow profile privacy; public projections omit watch metadata.
 - `follows` uses `following_id` for the target and keeps pending/accepted/declined state; only constrained RPCs create and approve relationships.
 - Ordinary custom movie lists are now in scope alongside the watchlist. They are collections; the earlier deferral of a manual custom ranked-list workflow remains. Both custom lists and the default watchlist inherit profile visibility.
 - Onboarding preferences live in owner-only `user_preferences` (favorite genre IDs) and `user_favorite_movies` (at most five, referencing cached `movies`), in place of the suggested `profile_details` preferences field. Favorites never create entries, ratings, or activity. Username rules are defined once in the database (`valid_username()`), and availability is checked through a signed-in-only RPC.

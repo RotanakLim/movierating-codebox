@@ -37,63 +37,63 @@ export type Database = {
       activity: {
         Row: {
           created_at: string;
+          entry_id: string;
           id: string;
           kind: Database["public"]["Enums"]["activity_kind"];
           movie_id: number;
-          ranking_id: string;
           user_id: string;
         };
         Insert: {
           created_at?: string;
+          entry_id: string;
           id?: string;
           kind: Database["public"]["Enums"]["activity_kind"];
           movie_id: number;
-          ranking_id: string;
           user_id: string;
         };
         Update: {
           created_at?: string;
+          entry_id?: string;
           id?: string;
           kind?: Database["public"]["Enums"]["activity_kind"];
           movie_id?: number;
-          ranking_id?: string;
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "current_entries";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "public_current_ratings";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "public_reviews";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
           {
             foreignKeyName: "activity_movie_id_fkey";
             columns: ["movie_id"];
             isOneToOne: false;
             referencedRelation: "movies";
             referencedColumns: ["tmdb_id"];
-          },
-          {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
-            isOneToOne: false;
-            referencedRelation: "current_rankings";
-            referencedColumns: ["id", "user_id", "movie_id"];
-          },
-          {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
-            isOneToOne: false;
-            referencedRelation: "public_current_ratings";
-            referencedColumns: ["id", "user_id", "movie_id"];
-          },
-          {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
-            isOneToOne: false;
-            referencedRelation: "public_reviews";
-            referencedColumns: ["id", "user_id", "movie_id"];
-          },
-          {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
-            isOneToOne: false;
-            referencedRelation: "rankings";
-            referencedColumns: ["id", "user_id", "movie_id"];
           },
           {
             foreignKeyName: "activity_user_id_fkey";
@@ -152,6 +152,73 @@ export type Database = {
           {
             foreignKeyName: "blocks_blocker_id_fkey";
             columns: ["blocker_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      entries: {
+        Row: {
+          created_at: string;
+          id: string;
+          movie_id: number;
+          note: string | null;
+          score: number | null;
+          spoiler: boolean;
+          updated_at: string;
+          user_id: string;
+          version: number;
+          watched: boolean;
+          watched_date: string | null;
+          watched_timezone: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          movie_id: number;
+          note?: string | null;
+          score?: number | null;
+          spoiler?: boolean;
+          updated_at?: string;
+          user_id?: string;
+          version?: number;
+          watched?: boolean;
+          watched_date?: string | null;
+          watched_timezone?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          movie_id?: number;
+          note?: string | null;
+          score?: number | null;
+          spoiler?: boolean;
+          updated_at?: string;
+          user_id?: string;
+          version?: number;
+          watched?: boolean;
+          watched_date?: string | null;
+          watched_timezone?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "entries_movie_id_fkey";
+            columns: ["movie_id"];
+            isOneToOne: false;
+            referencedRelation: "movies";
+            referencedColumns: ["tmdb_id"];
+          },
+          {
+            foreignKeyName: "entries_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "user_identities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "entries_user_id_fkey";
+            columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
             referencedColumns: ["id"];
@@ -316,73 +383,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      rankings: {
-        Row: {
-          created_at: string;
-          id: string;
-          movie_id: number;
-          note: string | null;
-          score: number | null;
-          spoiler: boolean;
-          updated_at: string;
-          user_id: string;
-          version: number;
-          watched: boolean;
-          watched_date: string | null;
-          watched_timezone: string;
-        };
-        Insert: {
-          created_at?: string;
-          id?: string;
-          movie_id: number;
-          note?: string | null;
-          score?: number | null;
-          spoiler?: boolean;
-          updated_at?: string;
-          user_id?: string;
-          version?: number;
-          watched?: boolean;
-          watched_date?: string | null;
-          watched_timezone?: string;
-        };
-        Update: {
-          created_at?: string;
-          id?: string;
-          movie_id?: number;
-          note?: string | null;
-          score?: number | null;
-          spoiler?: boolean;
-          updated_at?: string;
-          user_id?: string;
-          version?: number;
-          watched?: boolean;
-          watched_date?: string | null;
-          watched_timezone?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "rankings_movie_id_fkey";
-            columns: ["movie_id"];
-            isOneToOne: false;
-            referencedRelation: "movies";
-            referencedColumns: ["tmdb_id"];
-          },
-          {
-            foreignKeyName: "rankings_user_id_fkey";
-            columns: ["user_id"];
-            isOneToOne: false;
-            referencedRelation: "user_identities";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "rankings_user_id_fkey";
-            columns: ["user_id"];
-            isOneToOne: false;
-            referencedRelation: "users";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
       user_favorite_movies: {
         Row: {
           added_at: string;
@@ -492,11 +492,11 @@ export type Database = {
         Row: {
           avatar: string | null;
           created_at: string | null;
+          entry_id: string | null;
           id: string | null;
           kind: Database["public"]["Enums"]["activity_kind"] | null;
           movie_id: number | null;
           poster: string | null;
-          ranking_id: string | null;
           score: number | null;
           summary: string | null;
           title: string | null;
@@ -506,39 +506,39 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "activity_movie_id_fkey";
-            columns: ["movie_id"];
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
             isOneToOne: false;
-            referencedRelation: "movies";
-            referencedColumns: ["tmdb_id"];
-          },
-          {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
-            isOneToOne: false;
-            referencedRelation: "current_rankings";
+            referencedRelation: "current_entries";
             referencedColumns: ["id", "user_id", "movie_id"];
           },
           {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
+            isOneToOne: false;
+            referencedRelation: "entries";
+            referencedColumns: ["id", "user_id", "movie_id"];
+          },
+          {
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
             isOneToOne: false;
             referencedRelation: "public_current_ratings";
             referencedColumns: ["id", "user_id", "movie_id"];
           },
           {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
+            foreignKeyName: "activity_entry_id_user_id_movie_id_fkey";
+            columns: ["entry_id", "user_id", "movie_id"];
             isOneToOne: false;
             referencedRelation: "public_reviews";
             referencedColumns: ["id", "user_id", "movie_id"];
           },
           {
-            foreignKeyName: "activity_ranking_id_user_id_movie_id_fkey";
-            columns: ["ranking_id", "user_id", "movie_id"];
+            foreignKeyName: "activity_movie_id_fkey";
+            columns: ["movie_id"];
             isOneToOne: false;
-            referencedRelation: "rankings";
-            referencedColumns: ["id", "user_id", "movie_id"];
+            referencedRelation: "movies";
+            referencedColumns: ["tmdb_id"];
           },
           {
             foreignKeyName: "activity_user_id_fkey";
@@ -556,7 +556,7 @@ export type Database = {
           },
         ];
       };
-      current_rankings: {
+      current_entries: {
         Row: {
           created_at: string | null;
           id: string | null;
@@ -573,21 +573,21 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "rankings_movie_id_fkey";
+            foreignKeyName: "entries_movie_id_fkey";
             columns: ["movie_id"];
             isOneToOne: false;
             referencedRelation: "movies";
             referencedColumns: ["tmdb_id"];
           },
           {
-            foreignKeyName: "rankings_user_id_fkey";
+            foreignKeyName: "entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "user_identities";
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "rankings_user_id_fkey";
+            foreignKeyName: "entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
@@ -604,21 +604,21 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "rankings_movie_id_fkey";
+            foreignKeyName: "entries_movie_id_fkey";
             columns: ["movie_id"];
             isOneToOne: false;
             referencedRelation: "movies";
             referencedColumns: ["tmdb_id"];
           },
           {
-            foreignKeyName: "rankings_user_id_fkey";
+            foreignKeyName: "entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "user_identities";
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "rankings_user_id_fkey";
+            foreignKeyName: "entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
@@ -659,21 +659,21 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "rankings_movie_id_fkey";
+            foreignKeyName: "entries_movie_id_fkey";
             columns: ["movie_id"];
             isOneToOne: false;
             referencedRelation: "movies";
             referencedColumns: ["tmdb_id"];
           },
           {
-            foreignKeyName: "rankings_user_id_fkey";
+            foreignKeyName: "entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "user_identities";
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "rankings_user_id_fkey";
+            foreignKeyName: "entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
@@ -724,7 +724,7 @@ export type Database = {
       username_status: { Args: { candidate: string }; Returns: string };
     };
     Enums: {
-      activity_kind: "ranked" | "reviewed" | "watched";
+      activity_kind: "rated" | "reviewed" | "watched";
       follow_status: "pending" | "accepted" | "declined";
       list_kind: "watchlist" | "custom";
       profile_visibility: "public" | "followers" | "friends" | "private";
@@ -858,7 +858,7 @@ export const Constants = {
   },
   public: {
     Enums: {
-      activity_kind: ["ranked", "reviewed", "watched"],
+      activity_kind: ["rated", "reviewed", "watched"],
       follow_status: ["pending", "accepted", "declined"],
       list_kind: ["watchlist", "custom"],
       profile_visibility: ["public", "followers", "friends", "private"],

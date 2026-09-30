@@ -3,6 +3,7 @@ const mocks = vi.hoisted(() => ({
   details: vi.fn(),
   cached: vi.fn(),
   limit: vi.fn(),
+  entries: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
@@ -15,6 +16,7 @@ vi.mock("@/lib/supabase/movie-cache", () => ({
   readCachedMovie: mocks.cached,
 }));
 vi.mock("@/lib/movies/limits", () => ({ limitMovieRequest: mocks.limit }));
+vi.mock("@/lib/entries/load", () => ({ loadViewerEntries: mocks.entries }));
 import MoviePage, { generateMetadata } from "@/app/movies/[tmdbId]/page";
 import { MovieError } from "@/lib/movies/errors";
 
@@ -39,6 +41,7 @@ beforeEach(() => {
   Object.values(mocks).forEach((mock) => mock.mockReset());
   mocks.details.mockResolvedValue(movie);
   mocks.cached.mockResolvedValue(null);
+  mocks.entries.mockResolvedValue({ viewer: { status: "guest" }, entries: [] });
 });
 
 describe("movie page", () => {
@@ -46,6 +49,25 @@ describe("movie page", () => {
     await MoviePage(props("693134"));
     expect(mocks.details).toHaveBeenCalledWith(693134);
     expect(mocks.limit).not.toHaveBeenCalled();
+  });
+  it("loads the viewer's own entries for the composer", async () => {
+    const entries = [{ id: "entry-1" }];
+    mocks.entries.mockResolvedValue({ viewer: { status: "guest" }, entries });
+    const found: Record<string, unknown>[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (!node || typeof node !== "object" || !("props" in node)) return;
+      const { type, props } = node as {
+        type: { name?: string };
+        props: Record<string, unknown>;
+      };
+      if (type?.name === "EntryComposer") found.push(props);
+      walk(props.children);
+    };
+    walk(await MoviePage(props("693134")));
+    expect(mocks.entries).toHaveBeenCalledWith(693134);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ movieId: 693134, entries });
   });
   it("titles the page '<Title> (<Year>)'", async () => {
     expect(await generateMetadata(props("693134"))).toEqual({
